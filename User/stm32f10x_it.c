@@ -1,160 +1,93 @@
 /**
   ******************************************************************************
   * @file    Project/STM32F10x_StdPeriph_Template/stm32f10x_it.c 
-  * @author  MCD Application Team
-  * @version V3.5.0
-  * @date    08-April-2011
   * @brief   Main Interrupt Service Routines.
-  *          This file provides template for all exceptions handler and 
-  *          peripherals interrupt service routine.
-  ******************************************************************************
-  * @attention
-  *
-  * THE PRESENT FIRMWARE WHICH IS FOR GUIDANCE ONLY AIMS AT PROVIDING CUSTOMERS
-  * WITH CODING INFORMATION REGARDING THEIR PRODUCTS IN ORDER FOR THEM TO SAVE
-  * TIME. AS A RESULT, STMICROELECTRONICS SHALL NOT BE HELD LIABLE FOR ANY
-  * DIRECT, INDIRECT OR CONSEQUENTIAL DAMAGES WITH RESPECT TO ANY CLAIMS ARISING
-  * FROM THE CONTENT OF SUCH FIRMWARE AND/OR THE USE MADE BY CUSTOMERS OF THE
-  * CODING INFORMATION CONTAINED HEREIN IN CONNECTION WITH THEIR PRODUCTS.
-  *
-  * <h2><center>&copy; COPYRIGHT 2011 STMicroelectronics</center></h2>
   ******************************************************************************
   */
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f10x_it.h"
 
-/** @addtogroup STM32F10x_StdPeriph_Template
-  * @{
-  */
+/* include FreeRTOS headers so we can call the port systick handler */
+#include "FreeRTOS.h"
+#include "task.h"
 
-/* Private typedef -----------------------------------------------------------*/
-/* Private define ------------------------------------------------------------*/
-/* Private macro -------------------------------------------------------------*/
-/* Private variables ---------------------------------------------------------*/
-/* Private function prototypes -----------------------------------------------*/
+/* FreeRTOS port systick handler symbol - 确认你拷贝的 portable/ARM_CM3/port.c 中导出的名称 */
+extern void xPortSysTickHandler(void);
+
+/* If your port provides different names for SVC / PendSV handlers, they are
+   normally mapped using macros in FreeRTOSConfig.h:
+     #define vPortSVCHandler    SVC_Handler
+     #define xPortPendSVHandler PendSV_Handler
+   In that case the port's implementation will provide SVC_Handler/PendSV_Handler.
+   Do NOT provide SVC_Handler or PendSV_Handler implementations here to avoid
+   duplicate symbols. */
+
 /* Private functions ---------------------------------------------------------*/
 
 /******************************************************************************/
 /*            Cortex-M3 Processor Exceptions Handlers                         */
 /******************************************************************************/
 
-/**
-  * @brief  This function handles NMI exception.
-  * @param  None
-  * @retval None
-  */
 void NMI_Handler(void)
 {
 }
 
-/**
-  * @brief  This function handles Hard Fault exception.
-  * @param  None
-  * @retval None
-  */
+/* HardFault/Memory/Bus/Usage handlers left as template - you can add logging */
 void HardFault_Handler(void)
 {
-  /* Go to infinite loop when Hard Fault exception occurs */
   while (1)
   {
   }
 }
 
-/**
-  * @brief  This function handles Memory Manage exception.
-  * @param  None
-  * @retval None
-  */
 void MemManage_Handler(void)
 {
-  /* Go to infinite loop when Memory Manage exception occurs */
   while (1)
   {
   }
 }
 
-/**
-  * @brief  This function handles Bus Fault exception.
-  * @param  None
-  * @retval None
-  */
 void BusFault_Handler(void)
 {
-  /* Go to infinite loop when Bus Fault exception occurs */
   while (1)
   {
   }
 }
 
-/**
-  * @brief  This function handles Usage Fault exception.
-  * @param  None
-  * @retval None
-  */
 void UsageFault_Handler(void)
 {
-  /* Go to infinite loop when Usage Fault exception occurs */
   while (1)
   {
   }
 }
 
-/**
-  * @brief  This function handles SVCall exception.
-  * @param  None
-  * @retval None
-  */
-void SVC_Handler(void)
-{
-}
-
-/**
-  * @brief  This function handles Debug Monitor exception.
-  * @param  None
-  * @retval None
-  */
+/* Debug monitor left as template */
 void DebugMon_Handler(void)
 {
 }
 
-/**
-  * @brief  This function handles PendSVC exception.
-  * @param  None
-  * @retval None
-  */
-void PendSV_Handler(void)
-{
-}
+/* SysTick handler is implemented by the FreeRTOS port (portable/.../port.c)
+   and therefore must NOT be defined here to avoid duplicate symbol when the
+   FreeRTOS portable layer provides SysTick_Handler.
 
-/**
-  * @brief  This function handles SysTick Handler.
-  * @param  None
-  * @retval None
-  */
-void SysTick_Handler(void)
-{
-}
+   If you need to perform MCU-specific SysTick work (e.g. HAL_IncTick), do it
+   from the FreeRTOS port's SysTick implementation or adapt the port so that
+   the port exposes a separate xPortSysTickHandler symbol and this file
+   calls that symbol instead. */
 
 /******************************************************************************/
 /*                 STM32F10x Peripherals Interrupt Handlers                   */
-/*  Add here the Interrupt Handler for the used peripheral(s) (PPP), for the  */
-/*  available peripheral interrupt handler's name please refer to the startup */
-/*  file (startup_stm32f10x_xx.s).                                            */
 /******************************************************************************/
 
-/**
-  * @brief  This function handles PPP interrupt request.
-  * @param  None
-  * @retval None
-  */
-/*void PPP_IRQHandler(void)
+/* 示例：外设中断处理模板（按需实现） */
+void EXTI0_IRQHandler(void)
 {
-}*/
+    /* 处理 EXTI0 中断（示例）：
+       - 检查并清中断挂起位（按寄存器/StdPeriph 库方式）
+       - 如果在 ISR 中使用 FreeRTOS FromISR API（如 xQueueSendFromISR），
+         请确保中断优先级符合 configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY 的限制，
+         并在必要时调用 portYIELD_FROM_ISR( xHigherPriorityTaskWoken ); */
+}
 
-/**
-  * @}
-  */ 
-
-
-/******************* (C) COPYRIGHT 2011 STMicroelectronics *****END OF FILE****/
+/* 其他外设中断按需添加 */

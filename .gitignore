@@ -1,5 +1,15 @@
-# Keil MDK 工程专用忽略规则
-# --- 编译输出文件 ---
+# 改进后的 Keil/MDK 工程专用 .gitignore
+
+########################################
+# 说明
+# - 忽略编译和链接产生的中间文件与最终二进制产物
+# - 忽略 IDE、编辑器及操作系统产生的临时文件
+# - 建议：把项目源文件（例如 `Project.uvprojx`）纳入版本控制，用户/本地配置文件（例如 `*.uvoptx`）忽略
+########################################
+
+### Keil / MDK / ARM 构建产物（忽略）
+Objects/
+Listings/
 *.o
 *.obj
 *.axf
@@ -12,50 +22,62 @@
 *.d
 *.dep
 *.lnp
+Project.build_log.htm
+Project.htm
 
-# --- 工程相关临时文件 ---
-# 包含用户特定设置（如调试选项），建议忽略
-*.uvoptx
-Project.uvprojx
-# 包含IDE界面布局，应忽略
-*.uvguix.*
-# 编译过程日志
+### Keil/IDE 用户或本地配置（建议忽略）
+*.uvoptx          # 用户特定的选项文件
+*.uvguix.*        # IDE UI/layout 临时文件
+# 注意：`Project.uvprojx` 通常是工程文件，应纳入版本控制（因此没有被忽略）
+
+# ------------------------------
+# 保留用于直接打开 Keil 的工程文件（不要忽略）
+# 说明：有些 IDE/Keil 相关文件在多人协作时应保留在仓库，以便其他人可以直接打开工程。
+# 这些否定模式必须放在忽略规则之后以覆盖前面的通配忽略。
+!Project.uvprojx
+!Project.uvoptx
+!Project.uvguix.*
+!*.uvprojx
+# ------------------------------
+
+### Debug 配置与下载/调试器生成文件
+DebugConfig/*.dbgconf
+DebugConfig/*.db
+*.jlink
+JLinkLog.txt
+*.scvd
+
+### 日志、临时与备份
+*.log
 *.plg
+*.bak
+*~
+*.tmp
+*.stackdump
 
-# --- 构建输出目录 ---
-# 默认的构建输出目录，通常包含中间文件和最终产物
-MDK-ARM/
-Objects/
-Listings/
-# 常见的构建目录名称
+### 编辑器 / IDE
+.vscode/
+.vs/
+.idea/
+
+### 常见目录名（若项目使用这些目录作为构建输出）
 build/
 Debug/
 Release/
 output/
 
-# --- 调试与下载脚本 ---
-# 可能包含本地调试器配置
-*.jlink
-JLinkLog.txt
-*.ini
-*.scvd
-*.cdb
-*.dbg
-
-# --- 编辑器与IDE临时文件 ---
-# 备份文件
-*.bak
-*~
-*.tmp
-# Vim 临时文件
-*.swp
-*.swo
-# VS Code 配置（如使用）
-.vscode/
-# 其他IDE配置
-.idea/
-
-# --- 系统文件 ---
+### 操作系统文件
 .DS_Store
 Thumbs.db
 desktop.ini
+
+### 其它可能的二进制/中间文件
+*.o
+*.a
+*.lib
+*.so
+*.dll
+
+########################################
+# 如需保留某些构件，可在此文件内解除注释或在仓库层面添加例外规则
+########################################
