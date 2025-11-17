@@ -4,3 +4,5 @@
 #include "Serial.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include "thrd.h"
+#include "adc.h"
