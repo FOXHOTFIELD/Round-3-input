@@ -142,6 +142,7 @@ int main(void)
 	T_Adc_Init();
   thrd_Init();
 	OLED_Init();
+    Encoder_Init();
 
 	/* 初始化滤波器系数 */
 	Butterworth_Init(&bw1, cutoff_fc, sample_fs);
@@ -174,6 +175,7 @@ int main(void)
 	OLED_ShowNum(1, 1, adcf1, 4, OLED_8X16);
 	OLED_ShowNum(1, 18, adcf2, 4, OLED_8X16);
 	OLED_ShowNum(1, 36, adcf3, 4, OLED_8X16);
+    OLED_ShowNum(50, 1, Motor1_getSpeed(), 3, OLED_8X16);
 	OLED_Update();
 
 	/* 保证采样率近似为 sample_fs（这里延时 10 ms）
