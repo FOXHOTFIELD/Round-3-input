@@ -92,28 +92,44 @@ int main(void)
 	T_Adc_Init();
   thrd_Init();
 	OLED_Init();
-    Encoder_Init();
 
+	/* 初始化滤波器系数 */
+	Butterworth_Init(&bw1, cutoff_fc, sample_fs);
+	Butterworth_Init(&bw2, cutoff_fc, sample_fs);
+	Butterworth_Init(&bw3, cutoff_fc, sample_fs);
+	
+	
+	while(1)
+ {
+	/* 读取原始 ADC 值（整数） */
+	adcx1 = T_Get_Adc_Average(THRD1_ADC_CH0, 10);
+	adcx2 = T_Get_Adc_Average(THRD2_ADC_CH0, 10);
+	adcx3 = T_Get_Adc_Average(THRD3_ADC_CH0, 10);
 
+	/* 转为浮点并进行巴特沃斯滤波 */
+	float f1 = Butterworth_Filter(&bw1, (float)adcx1);
+	float f2 = Butterworth_Filter(&bw2, (float)adcx2);
+	float f3 = Butterworth_Filter(&bw3, (float)adcx3);
 
+	/* 将滤波结果限制并转换回整数显示（根据 ADC 分辨率自行调整） */
+	if (f1 < 0.0f) f1 = 0.0f;
+	if (f2 < 0.0f) f2 = 0.0f;
+	if (f3 < 0.0f) f3 = 0.0f;
 
-	 while(1)
-	 {
-//		  /* 不在 main 中做滤波：仅读取平均 ADC 原始值并显示
-			  //滤波已移至 `thrd.c`，并会通过 IIC 发送滤波后的 thrd 值给主机/外设 */
-		  //adcx1 = T_Get_Adc_Average(THRD1_ADC_CH0, 10);
-		  //adcx2 = T_Get_Adc_Average(THRD2_ADC_CH0, 10);
-		  //adcx3 = T_Get_Adc_Average(THRD3_ADC_CH0, 10);
+	u16 adcf1 = (u16)(f1 + 0.5f);
+	u16 adcf2 = (u16)(f2 + 0.5f);
+	u16 adcf3 = (u16)(f3 + 0.5f);
 
-		  //OLED_ShowNum(1, 1, adcx1, 4, OLED_8X16);
-		  //OLED_ShowNum(1, 18, adcx2, 4, OLED_8X16);
-		  //OLED_ShowNum(1, 36, adcx3, 4, OLED_8X16);
-		  //OLED_ShowNum(50, 1, Motor1_getSpeed(), 3, OLED_8X16);
-		  //OLED_Update();
-	//(void)pvParameters;
-        Thrd_EncoderTask();
-		  Delay_ms(10);
-	 }
+	/* 显示滤波后的数值 */
+	OLED_ShowNum(1, 1, adcf1, 4, OLED_8X16);
+	OLED_ShowNum(1, 18, adcf2, 4, OLED_8X16);
+	OLED_ShowNum(1, 36, adcf3, 4, OLED_8X16);
+	OLED_Update();
+
+	/* 保证采样率近似为 sample_fs（这里延时 10 ms）
+	   注意：Delay_ms 的精度受系统定时器影响，如需更精确采样请使用定时器中断触发采样。 */
+	Delay_ms(10);
+ }
  
 	//NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
 	////uart1_init(115200);	 	//���ڳ�ʼ��Ϊ115200

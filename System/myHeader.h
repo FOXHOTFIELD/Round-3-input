@@ -6,5 +6,3 @@
 #include "task.h"
 #include "thrd.h"
 #include "adc.h"
-#include "Encoder.h"
-#include "IIC.h"
