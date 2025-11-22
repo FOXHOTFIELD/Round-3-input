@@ -13,5 +13,7 @@
 
 
 void thrd_Init(void);
+static void vThrd_EncoderTask(void *pvParameters);
+void Thrd_EncoderTask(void);
 
 #endif 
