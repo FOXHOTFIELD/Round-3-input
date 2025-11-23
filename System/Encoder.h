@@ -4,5 +4,6 @@
 
 void Encoder_Init(void);
 int16_t Motor1_getSpeed(void);
+int16_t Motor2_getSpeed(void);
 
 #endif
