@@ -14,5 +14,6 @@ void Serial_SendString(char *String);
 void Serial_SendNumber(uint32_t Number, uint8_t Length);
 void Serial_Printf(char *format, ...);
 void Serial_SendJustFloat(float *data, uint16_t num);
+void Serial_mySend(int16_t *arr, uint8_t length);
 
 #endif

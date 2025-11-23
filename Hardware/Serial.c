@@ -261,4 +261,10 @@ void USART1_IRQHandler(void)
 	}
 }
 
-
+void Serial_mySend(int16_t *arr, uint8_t length)
+{
+    Serial_SendByte('@');
+    for(int i = 0; i < length; i++) Serial_SendNumber(arr[i], 4);
+    Serial_SendByte('\r');
+    Serial_SendByte('\n');
+}

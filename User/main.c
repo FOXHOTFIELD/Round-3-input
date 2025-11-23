@@ -142,6 +142,7 @@ int main(void)
 	T_Adc_Init();
   thrd_Init();
 	OLED_Init();
+    Serial_Init();
 
 	/* 初始化滤波器系数 */
 	Butterworth_Init(&bw1, cutoff_fc, sample_fs);
@@ -177,6 +178,16 @@ int main(void)
     OLED_ShowNum(1, 55, Motor1_getSpeed(), 3, OLED_8X16);
 	OLED_Update();
 
+    int16_t arr[1] = {111};
+    Serial_mySend(arr, 1);
+    if (Serial_RxFlag == 1)		//如果接收到数据包
+		{
+            OLED_ShowString(1,1, Serial_RxPacket, OLED_6X8);
+	        OLED_Update();
+            Serial_SendString(Serial_RxPacket);
+			
+			Serial_RxFlag = 0;			//处理完成后，需要将接收数据包标志位清零，否则将无法接收后续数据包
+		}
 	/* 保证采样率近似为 sample_fs（这里延时 10 ms）
 	   注意：Delay_ms 的精度受系统定时器影响，如需更精确采样请使用定时器中断触发采样。 */
 	Delay_ms(10);
