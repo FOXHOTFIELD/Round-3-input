@@ -143,6 +143,7 @@ int main(void)
   thrd_Init();
 	OLED_Init();
     Serial_Init();
+    Encoder_Init();
 
 	/* 初始化滤波器系数 */
 	Butterworth_Init(&bw1, cutoff_fc, sample_fs);
@@ -175,11 +176,13 @@ int main(void)
 	OLED_ShowNum(1, 1, adcf1, 4, OLED_8X16);
 	OLED_ShowNum(1, 18, adcf2, 4, OLED_8X16);
 	OLED_ShowNum(1, 36, adcf3, 4, OLED_8X16);
-    OLED_ShowNum(1, 55, Motor1_getSpeed(), 3, OLED_8X16);
+    OLED_ShowSignedNum(55, 1, Motor1_getSpeed(), 4, OLED_8X16);
+    OLED_ShowSignedNum(55, 17, Motor2_getSpeed(), 4, OLED_8X16);
+
 	OLED_Update();
 
-    int16_t arr[1] = {111};
-    Serial_mySend(arr, 1);
+    int16_t arr[3] = {adcf1, adcf2, adcf3};
+    Serial_mySend(arr, 3);
     if (Serial_RxFlag == 1)		//如果接收到数据包
 		{
             OLED_ShowString(1,1, Serial_RxPacket, OLED_6X8);
