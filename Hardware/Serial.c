@@ -32,7 +32,7 @@ void Serial_Init(void)
 	
 	/*USART初始化*/
 	USART_InitTypeDef USART_InitStructure;					//定义结构体变量
-	USART_InitStructure.USART_BaudRate = 9600;				//波特率
+	USART_InitStructure.USART_BaudRate = 115200;			//波特率
 	USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;	//硬件流控制，不需要
 	USART_InitStructure.USART_Mode = USART_Mode_Tx | USART_Mode_Rx;	//模式，发送模式和接收模式均选择
 	USART_InitStructure.USART_Parity = USART_Parity_No;		//奇偶校验，不需要
@@ -261,10 +261,13 @@ void USART1_IRQHandler(void)
 	}
 }
 
-void Serial_mySend(int16_t *arr, uint8_t length)
+void Serial_mySend(int16_t speed1, int16_t speed2)
 {
-    Serial_SendByte('@');
-    for(int i = 0; i < length; i++) Serial_SendNumber(arr[i], 4);
-    Serial_SendByte('\r');
-    Serial_SendByte('\n');
+	Serial_SendByte('@');
+	/* 以小端顺序发送两个 int16：低字节在前，高字节在后 */
+	Serial_SendByte((uint8_t)(speed1 & 0xFF));
+	Serial_SendByte((uint8_t)((speed1 >> 8) & 0xFF));
+	Serial_SendByte((uint8_t)(speed2 & 0xFF));
+	Serial_SendByte((uint8_t)((speed2 >> 8) & 0xFF));
+	Serial_SendString("\r\n");
 }

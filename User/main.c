@@ -132,86 +132,105 @@ Butterworth bw1, bw2, bw3;
 const float sample_fs = 100.0f;
 const float cutoff_fc = 10.0f;
 
+/* 在定时器中断中使用的变量需要设为 volatile */
+static volatile int16_t speed1, speed2;
+static volatile uint16_t adcf1, adcf2, adcf3;
+
+/* 定时器初始化: 使用 TIM2 产生 100Hz 更新中断 (周期 10ms) */
+static void TIM2_Int_Init(void)
+{
+	/* 假设 APB1 定时器时钟为 36MHz。PSC = 36000-1 => 1kHz 计数频率 (1ms tick)，ARR = 10-1 => 10ms 周期 */
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
+	TIM_TimeBaseInitTypeDef tb;
+	tb.TIM_Period = 10 - 1;           /* 自动重装载值 */
+	tb.TIM_Prescaler = 36000 - 1;     /* 预分频 */
+	tb.TIM_ClockDivision = TIM_CKD_DIV1;
+	tb.TIM_CounterMode = TIM_CounterMode_Up;
+	TIM_TimeBaseInit(TIM2, &tb);
+
+	TIM_ClearFlag(TIM2, TIM_FLAG_Update);
+	TIM_ITConfig(TIM2, TIM_IT_Update, ENABLE);
+
+	NVIC_InitTypeDef nvic;
+	nvic.NVIC_IRQChannel = TIM2_IRQn;
+	nvic.NVIC_IRQChannelPreemptionPriority = 1; /* 根据工程优先级需求调整 */
+	nvic.NVIC_IRQChannelSubPriority = 1;
+	nvic.NVIC_IRQChannelCmd = ENABLE;
+	NVIC_Init(&nvic);
+
+	TIM_Cmd(TIM2, ENABLE);
+}
+
+/* TIM2 更新中断服务函数：执行原来循环中的周期性任务 */
+void TIM2_IRQHandler(void)
+{
+	if (TIM_GetITStatus(TIM2, TIM_IT_Update) != RESET)
+	{
+		TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
+
+		/* 读取原始 ADC 值（整数） */
+		u16 adcx1 = T_Get_Adc_Average(THRD1_ADC_CH0, 10);
+		u16 adcx2 = T_Get_Adc_Average(THRD2_ADC_CH0, 10);
+		u16 adcx3 = T_Get_Adc_Average(THRD3_ADC_CH0, 10);
+
+		/* 转为浮点并进行巴特沃斯滤波 */
+		//float f1 = Butterworth_Filter(&bw1, (float)adcx1);
+		//float f2 = Butterworth_Filter(&bw2, (float)adcx2);
+		//float f3 = Butterworth_Filter(&bw3, (float)adcx3);
+
+		//if (f1 < 0.0f) f1 = 0.0f;
+		//if (f2 < 0.0f) f2 = 0.0f;
+		//if (f3 < 0.0f) f3 = 0.0f;
+
+//		adcf1 = (u16)(f1 + 0.5f);
+		//adcf2 = (u16)(f2 + 0.5f);
+		//adcf3 = (u16)(f3 + 0.5f);
+		speed1 = Motor1_getSpeed() / 4;
+		speed2 = Motor2_getSpeed();
+		Serial_mySend(speed1, speed2);
+
+		/* 更新显示（注意：OLED 与串口操作可能较耗时，若影响实时性可改为设置标志在主循环中处理） */
+//		OLED_ShowNum(1, 1, adcf1, 4, OLED_8X16);
+		//OLED_ShowNum(1, 18, adcf2, 4, OLED_8X16);
+		//OLED_ShowNum(1, 36, adcf3, 4, OLED_8X16);
+		OLED_ShowSignedNum(55, 1, speed1, 4, OLED_8X16);
+		OLED_ShowSignedNum(55, 17,speed2, 4, OLED_8X16);
+		OLED_Update();
+
+
+
+		if (Serial_RxFlag == 1)
+		{
+			OLED_ShowString(1, 1, Serial_RxPacket, OLED_6X8);
+			OLED_Update();
+			Serial_SendString(Serial_RxPacket);
+			Serial_RxFlag = 0;
+		}
+	}
+}
+
 int main(void)
 {
-	u16 adcx1,adcx2,adcx3; 
-    
-    
-	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
-	//uart1_init(115200);	 	//���ڳ�ʼ��Ϊ115200
-	T_Adc_Init();
-  thrd_Init();
-	OLED_Init();
+    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
+    T_Adc_Init();
+    thrd_Init();
+    OLED_Init();
     Serial_Init();
     Encoder_Init();
 
-	/* 初始化滤波器系数 */
-	Butterworth_Init(&bw1, cutoff_fc, sample_fs);
-	Butterworth_Init(&bw2, cutoff_fc, sample_fs);
-	Butterworth_Init(&bw3, cutoff_fc, sample_fs);
-	
-	
-	while(1)
- {
-	/* 读取原始 ADC 值（整数） */
-	adcx1 = T_Get_Adc_Average(THRD1_ADC_CH0, 10);
-	adcx2 = T_Get_Adc_Average(THRD2_ADC_CH0, 10);
-	adcx3 = T_Get_Adc_Average(THRD3_ADC_CH0, 10);
+    /* 初始化滤波器系数 */
+    Butterworth_Init(&bw1, cutoff_fc, sample_fs);
+    Butterworth_Init(&bw2, cutoff_fc, sample_fs);
+    Butterworth_Init(&bw3, cutoff_fc, sample_fs);
 
-	/* 转为浮点并进行巴特沃斯滤波 */
-	float f1 = Butterworth_Filter(&bw1, (float)adcx1);
-	float f2 = Butterworth_Filter(&bw2, (float)adcx2);
-	float f3 = Butterworth_Filter(&bw3, (float)adcx3);
+    /* 初始化定时器中断代替循环延时实现 100Hz 任务 */
+    TIM2_Int_Init();
 
-	/* 将滤波结果限制并转换回整数显示（根据 ADC 分辨率自行调整） */
-	if (f1 < 0.0f) f1 = 0.0f;
-	if (f2 < 0.0f) f2 = 0.0f;
-	if (f3 < 0.0f) f3 = 0.0f;
-
-	u16 adcf1 = (u16)(f1 + 0.5f);
-	u16 adcf2 = (u16)(f2 + 0.5f);
-	u16 adcf3 = (u16)(f3 + 0.5f);
-
-	/* 显示滤波后的数值 */
-	OLED_ShowNum(1, 1, adcf1, 4, OLED_8X16);
-	OLED_ShowNum(1, 18, adcf2, 4, OLED_8X16);
-	OLED_ShowNum(1, 36, adcf3, 4, OLED_8X16);
-    OLED_ShowSignedNum(55, 1, Motor1_getSpeed(), 4, OLED_8X16);
-    OLED_ShowSignedNum(55, 17, Motor2_getSpeed(), 4, OLED_8X16);
-
-	OLED_Update();
-
-    int16_t arr[3] = {adcf1, adcf2, adcf3};
-    Serial_mySend(arr, 3);
-    if (Serial_RxFlag == 1)		//如果接收到数据包
-		{
-            OLED_ShowString(1,1, Serial_RxPacket, OLED_6X8);
-	        OLED_Update();
-            Serial_SendString(Serial_RxPacket);
-			
-			Serial_RxFlag = 0;			//处理完成后，需要将接收数据包标志位清零，否则将无法接收后续数据包
-		}
-	/* 保证采样率近似为 sample_fs（这里延时 10 ms）
-	   注意：Delay_ms 的精度受系统定时器影响，如需更精确采样请使用定时器中断触发采样。 */
-	Delay_ms(10);
- }
- 
-	//NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
-	////uart1_init(115200);	 	//���ڳ�ʼ��Ϊ115200
-	//T_Adc_Init();
-  //thrd_Init();
-	
-	
-	
-	//while(1)
-	//{
-		//adcx1=T_Get_Adc_Average(THRD1_ADC_CH0,10);
-		//adcx2=T_Get_Adc_Average(THRD2_ADC_CH0,10);
-		//adcx3=T_Get_Adc_Average(THRD3_ADC_CH0,10);
-
-		//Delay_ms(500);
-	//}
-	
-
+    /* 主循环不再执行周期性采样，保留用于低优先级处理（可扩展） */
+    while (1)
+    {
+        /* 若耗时的显示/串口操作需要移出中断，可在此基于标志处理 */
+        /* 当前实现全部在 TIM2_IRQHandler 中 */
+    }
 }
 
