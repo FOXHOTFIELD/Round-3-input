@@ -1,78 +1,4 @@
 #include "myHeader.h"
-
-///* 简单示例：在 STM32F103C8 (BluePill) 上运行 FreeRTOS
-   //- 使用 PC13 作为 LED 输出（常见板载 LED）
-   //- 使用 USART1 通过 Serial_Printf 打印信息
-   //先复用工程中已有的 Serial_Init / Serial_Printf 接口 */
-
-///* 更改 LED 引脚：将原来的 PC13 换为 PA5（示例） */
-//#define LED_PORT GPIOA
-//#define LED_PIN  GPIO_Pin_5
-
-//static void LED_Init(void)
-//{
-	///* 开启 GPIOA 时钟（PA5） */
-	//RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
-	//GPIO_InitTypeDef GPIO_InitStructure;
-	//GPIO_InitStructure.GPIO_Pin = LED_PIN;
-	//GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
-	//GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
-	//GPIO_Init(LED_PORT, &GPIO_InitStructure);
-	///* 初始清零（按需改为 Set），便于观察变化 */
-	//GPIO_ResetBits(LED_PORT, LED_PIN);
-//}
-
-//static void vTaskBlink(void *pvParameters)
-//{
-	//(void)pvParameters;
-	//for (;;)
-	//{
-		///* 翻转引脚：GPIO_ReadOutputDataBit 返回 uint8_t，使用 uint8_t 消除枚举/整型混合警告 */
-		//uint8_t current = GPIO_ReadOutputDataBit(LED_PORT, LED_PIN);
-		//if (current == Bit_SET)
-		//{
-			//GPIO_WriteBit(LED_PORT, LED_PIN, Bit_RESET);
-		//}
-		//else
-		//{
-			//GPIO_WriteBit(LED_PORT, LED_PIN, Bit_SET);
-		//}
-		//vTaskDelay(pdMS_TO_TICKS(500));
-	//}
-//}
-
-//static void vTaskPrint(void *pvParameters)
-//{
-	//(void)pvParameters;
-	//unsigned long cnt = 0;
-	//for (;;)
-	//{
-		//Serial_Printf("FreeRTOS running: %lu\r\n", cnt++);
-		//vTaskDelay(pdMS_TO_TICKS(1000));
-	//}
-//}
-
-//int main(void)
-//{
-////	/* 系统初始化（startup/系统初始化通常已在启动代码中完成） */
-	////SystemInit();
-
-	/////* 初始化串口与 LED */
-	////Serial_Init();
-	////LED_Init();
-
-	/////* 创建任务：优先级 Blink>Print */
-	////xTaskCreate(vTaskBlink, "Blink", 128, NULL, tskIDLE_PRIORITY + 2, NULL);
-	////xTaskCreate(vTaskPrint, "Print", 256, NULL, tskIDLE_PRIORITY + 1, NULL);
-
-	/////* 启动调度 */
-	////vTaskStartScheduler();
-
-	///* 若调度器返回，进入死循环 */
-	//while (1)
-	//{
-	//}
-//}
 #include <math.h>
 
 #define PI 3.14159265358979323846f
@@ -133,8 +59,8 @@ const float sample_fs = 100.0f;
 const float cutoff_fc = 10.0f;
 
 /* 在定时器中断中使用的变量需要设为 volatile */
-static volatile int16_t speed1, speed2;
-static volatile uint16_t adcf1, adcf2, adcf3;
+volatile int16_t speed1, speed2;
+volatile uint16_t adcf1, adcf2, adcf3;
 
 /* 定时器初始化: 使用 TIM2 产生 100Hz 更新中断 (周期 10ms) */
 static void TIM2_Int_Init(void)
@@ -173,29 +99,31 @@ void TIM2_IRQHandler(void)
 		u16 adcx2 = T_Get_Adc_Average(THRD2_ADC_CH0, 10);
 		u16 adcx3 = T_Get_Adc_Average(THRD3_ADC_CH0, 10);
 
-		/* 转为浮点并进行巴特沃斯滤波 */
-		//float f1 = Butterworth_Filter(&bw1, (float)adcx1);
-		//float f2 = Butterworth_Filter(&bw2, (float)adcx2);
-		//float f3 = Butterworth_Filter(&bw3, (float)adcx3);
+/* 转为浮点并进行巴特沃斯滤波 */
+		float f1 = Butterworth_Filter(&bw1, (float)adcx1);
+		float f2 = Butterworth_Filter(&bw2, (float)adcx2);
+		float f3 = Butterworth_Filter(&bw3, (float)adcx3);
 
-		//if (f1 < 0.0f) f1 = 0.0f;
-		//if (f2 < 0.0f) f2 = 0.0f;
-		//if (f3 < 0.0f) f3 = 0.0f;
+		if (f1 < 0.0f) f1 = 0.0f;
+		if (f2 < 0.0f) f2 = 0.0f;
+		if (f3 < 0.0f) f3 = 0.0f;
 
-//		adcf1 = (u16)(f1 + 0.5f);
-		//adcf2 = (u16)(f2 + 0.5f);
-		//adcf3 = (u16)(f3 + 0.5f);
+		adcf1 = (u16)(f1 + 0.5f);
+		adcf2 = (u16)(f2 + 0.5f);
+		adcf3 = (u16)(f3 + 0.5f);
 		speed1 = Motor1_getSpeed() / 4;
-		speed2 = Motor2_getSpeed();
+		speed2 = Motor2_getSpeed() / 4;
 		Serial_mySend(speed1, speed2);
 
 		/* 更新显示（注意：OLED 与串口操作可能较耗时，若影响实时性可改为设置标志在主循环中处理） */
-//		OLED_ShowNum(1, 1, adcf1, 4, OLED_8X16);
-		//OLED_ShowNum(1, 18, adcf2, 4, OLED_8X16);
-		//OLED_ShowNum(1, 36, adcf3, 4, OLED_8X16);
+		OLED_ShowNum(1, 1, adcf1, 4, OLED_8X16);
+		OLED_ShowNum(1, 18, adcf2, 4, OLED_8X16);
+		OLED_ShowNum(1, 36, adcf3, 4, OLED_8X16);
 		OLED_ShowSignedNum(55, 1, speed1, 4, OLED_8X16);
 		OLED_ShowSignedNum(55, 17,speed2, 4, OLED_8X16);
 		OLED_Update();
+
+        //thrdPID();
 
 
 

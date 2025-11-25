@@ -188,22 +188,12 @@ uint8_t Serial_GetRxData(void)
   */
 void Serial_SendJustFloat(float *data, uint16_t num)
 {
-    uint8_t i;
-    uint8_t *dataBytes;
-    //uint8_t header[] = JUSTFLOAT_HEADER;
-    uint8_t tail[] = JUSTFLOAT_TAIL;
-    
-    /*发送帧头*/
-    //Serial_SendArray(header, sizeof(header));
-    
-    /*发送浮点数据（小端模式）*/
-    for (i = 0; i < num; i++) {
-        dataBytes = (uint8_t *)&data[i];
-        Serial_SendArray(dataBytes, 4); // 每个float占4字节
-    }
-    
-    /*发送帧尾*/
-    Serial_SendArray(tail, sizeof(tail));
+	uint8_t tail[] = JUSTFLOAT_TAIL;
+	for(uint16_t i=0; i<num; i++){
+		uint8_t *p = (uint8_t *)&data[i];
+		Serial_SendArray(p, 4);
+	}
+	Serial_SendArray(tail, sizeof(tail));
 }
 
 /**
