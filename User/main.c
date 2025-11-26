@@ -114,8 +114,8 @@ void TIM2_IRQHandler(void)
 		adcf3 = (u16)(f3 + 0.5f);
 		speed1 = Motor1_getSpeed() / 4;
 		speed2 = Motor2_getSpeed() / 4;
-		Serial_mySend(speed1, speed2);
-
+        thrd_correct();
+        thrdPID();
 		/* 更新显示（注意：OLED 与串口操作可能较耗时，若影响实时性可改为设置标志在主循环中处理） */
 		OLED_ShowNum(1, 1, adcf1, 4, OLED_8X16);
 		OLED_ShowNum(1, 18, adcf2, 4, OLED_8X16);
@@ -124,12 +124,17 @@ void TIM2_IRQHandler(void)
 		OLED_ShowSignedNum(55, 17,speed2, 4, OLED_8X16);
 
         OLED_ShowNum(30, 1, g_thrd_correct_wip, 1,OLED_6X8);
-        OLED_ShowNum(60, 30, thrd_BLACK, 4, OLED_6X8);
-        OLED_ShowNum(60, 39, thrd_WHITE, 4, OLED_6X8);
+//        OLED_ShowNum(60, 30, thrd_BLACK, 4, OLED_6X8);
+        //OLED_ShowNum(60, 39, thrd_WHITE, 4, OLED_6X8);
+        OLED_ShowFloatNum(60, 31, v1, 1, 1, OLED_6X8);
+        OLED_ShowFloatNum(60, 40, v2, 1, 1, OLED_6X8);
+        OLED_ShowFloatNum(60, 49, v3, 1, 1, OLED_6X8);
+        OLED_ShowFloatNum(90, 49, offset, 1, 1, OLED_6X8);
 		OLED_Update();
 
-        //thrdPID();
-        thrd_correct();
+
+
+	//Serial_mySend(speed1, speed2, offset);
 
 
 
@@ -138,12 +143,27 @@ void TIM2_IRQHandler(void)
 			OLED_ShowString(1, 1, Serial_RxPacket, OLED_6X8);
 			OLED_Update();
 			Serial_SendString(Serial_RxPacket);
+
+            	float data = 0;
+				char Cmd;
+            	sscanf(Serial_RxPacket, "%c%f", &Cmd, &data);
+				//OLED_ShowString(2, 5, Cmd);
+                //OLED_ShowString(10, 1, Rx_buf, OLED_6X8);
+				if(Cmd == 'S') {
+
+                }
+				//else if(Cmd == 'i') Motor1_Data.Ki = data;
+				//else if(Cmd == 'p') Motor1_Data.Kp = data;
+				//else if(Cmd == 'd') Motor1_Data.Kd = data;
+				else if(Cmd == 'i') Ki = data;
+				else if(Cmd == 'p') Kp = data;
+				else if(Cmd == 'd') Kd = data;
+				OLED_ShowFloatNum(33, 1, Kp,1, 2, OLED_6X8);
+				OLED_ShowFloatNum(33, 9, Ki,1, 2, OLED_6X8);
+				OLED_ShowFloatNum(33, 18, Kd,1, 2, OLED_6X8);
+
+
 			Serial_RxFlag = 0;
-
-            if(!strcmp(Serial_RxPacket, "aaa")){
-                g_thrd_correct_wip = 1;
-            }
-
 		}
 	}
 }

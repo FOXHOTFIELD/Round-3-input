@@ -11,6 +11,8 @@
 #define THRD2_ADC_CH0		ADC_Channel_1
 #define THRD3_ADC_CH0		ADC_Channel_2
 
+#define thrd_correct_port (GPIO_Pin_1) //PB1用于启动input的thrd_correct
+
 
 void thrd_Init(void);
 
