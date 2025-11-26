@@ -1,5 +1,6 @@
 #include "myHeader.h"
 #include <math.h>
+#include <string.h>
 
 #define PI 3.14159265358979323846f
 #define SQRT2 1.41421356237309504880f
@@ -121,9 +122,14 @@ void TIM2_IRQHandler(void)
 		OLED_ShowNum(1, 36, adcf3, 4, OLED_8X16);
 		OLED_ShowSignedNum(55, 1, speed1, 4, OLED_8X16);
 		OLED_ShowSignedNum(55, 17,speed2, 4, OLED_8X16);
+
+        OLED_ShowNum(30, 1, g_thrd_correct_wip, 1,OLED_6X8);
+        OLED_ShowNum(60, 30, thrd_BLACK, 4, OLED_6X8);
+        OLED_ShowNum(60, 39, thrd_WHITE, 4, OLED_6X8);
 		OLED_Update();
 
         //thrdPID();
+        thrd_correct();
 
 
 
@@ -133,6 +139,11 @@ void TIM2_IRQHandler(void)
 			OLED_Update();
 			Serial_SendString(Serial_RxPacket);
 			Serial_RxFlag = 0;
+
+            if(!strcmp(Serial_RxPacket, "aaa")){
+                g_thrd_correct_wip = 1;
+            }
+
 		}
 	}
 }

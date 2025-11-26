@@ -261,3 +261,15 @@ void Serial_mySend(int16_t speed1, int16_t speed2)
 	Serial_SendByte((uint8_t)((speed2 >> 8) & 0xFF));
 	Serial_SendString("\r\n");
 }
+
+void Serial_processCMD(void)
+{
+    if(Serial_RxFlag)
+    {
+        if(!strcmp(Serial_RxPacket, "aaa")){
+            g_thrd_correct_wip = 1;
+        }
+
+        Serial_RxFlag = 0;
+    }
+}
