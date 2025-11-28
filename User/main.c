@@ -69,7 +69,7 @@ static void TIM2_Int_Init(void)
 	/* 假设 APB1 定时器时钟为 36MHz。PSC = 36000-1 => 1kHz 计数频率 (1ms tick)，ARR = 10-1 => 10ms 周期 */
 	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
 	TIM_TimeBaseInitTypeDef tb;
-	tb.TIM_Period = 10 - 1;           /* 自动重装载值 */
+	tb.TIM_Period = 5 - 1;           /* 自动重装载值 */
 	tb.TIM_Prescaler = 36000 - 1;     /* 预分频 */
 	tb.TIM_ClockDivision = TIM_CKD_DIV1;
 	tb.TIM_CounterMode = TIM_CounterMode_Up;
@@ -80,8 +80,8 @@ static void TIM2_Int_Init(void)
 
 	NVIC_InitTypeDef nvic;
 	nvic.NVIC_IRQChannel = TIM2_IRQn;
-	nvic.NVIC_IRQChannelPreemptionPriority = 1; /* 根据工程优先级需求调整 */
-	nvic.NVIC_IRQChannelSubPriority = 1;
+	nvic.NVIC_IRQChannelPreemptionPriority = 0; /* 根据工程优先级需求调整 */
+	nvic.NVIC_IRQChannelSubPriority = 0;
 	nvic.NVIC_IRQChannelCmd = ENABLE;
 	NVIC_Init(&nvic);
 
@@ -100,20 +100,20 @@ void TIM2_IRQHandler(void)
 		u16 adcx2 = T_Get_Adc_Average(THRD2_ADC_CH0, 10);
 		u16 adcx3 = T_Get_Adc_Average(THRD3_ADC_CH0, 10);
 
-/* 转为浮点并进行巴特沃斯滤波 */
-		float f1 = Butterworth_Filter(&bw1, (float)adcx1);
-		float f2 = Butterworth_Filter(&bw2, (float)adcx2);
-		float f3 = Butterworth_Filter(&bw3, (float)adcx3);
+///* 转为浮点并进行巴特沃斯滤波 */
+		//float f1 = Butterworth_Filter(&bw1, (float)adcx1);
+		//float f2 = Butterworth_Filter(&bw2, (float)adcx2);
+		//float f3 = Butterworth_Filter(&bw3, (float)adcx3);
 
-		if (f1 < 0.0f) f1 = 0.0f;
-		if (f2 < 0.0f) f2 = 0.0f;
-		if (f3 < 0.0f) f3 = 0.0f;
+		//if (f1 < 0.0f) f1 = 0.0f;
+		//if (f2 < 0.0f) f2 = 0.0f;
+		//if (f3 < 0.0f) f3 = 0.0f;
 
-		adcf1 = (u16)(f1 + 0.5f);
-		adcf2 = (u16)(f2 + 0.5f);
-		adcf3 = (u16)(f3 + 0.5f);
-		speed1 = Motor1_getSpeed() / 4;
-		speed2 = Motor2_getSpeed() / 4;
+		adcf1 = (u16)(adcx1 + 0.5f);
+		adcf2 = (u16)(adcx2 + 0.5f);
+		adcf3 = (u16)(adcx3 + 0.5f);
+		speed1 = Motor1_getSpeed() / 4.0;
+		speed2 = Motor2_getSpeed() / 4.0;
         thrd_correct();
         thrdPID();
 		/* 更新显示（注意：OLED 与串口操作可能较耗时，若影响实时性可改为设置标志在主循环中处理） */

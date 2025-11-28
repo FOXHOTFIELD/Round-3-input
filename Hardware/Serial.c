@@ -251,7 +251,7 @@ void USART1_IRQHandler(void)
 	}
 }
 
-void Serial_mySend(int16_t speed1, int16_t speed2, float offsetValue)
+void Serial_mySend(int16_t speed1, int16_t speed2, float offsetValue, uint8_t status)
 {
 	Serial_SendByte('@');
 	/* 以小端顺序发送两个 int16：低字节在前，高字节在后 */
@@ -262,6 +262,8 @@ void Serial_mySend(int16_t speed1, int16_t speed2, float offsetValue)
 	/* 继续以小端顺序发送 offset 的 IEEE754 表示 */
 	uint8_t *offsetBytes = (uint8_t *)&offsetValue;
 	Serial_SendArray(offsetBytes, sizeof(offsetValue));
+	/* 发送 status */
+	Serial_SendByte(status);
 	Serial_SendString("\r\n");
 }
 

@@ -76,11 +76,14 @@ void Encoder_Init(void){
   */
 int16_t Motor1_getSpeed(void)
 {
-	/*使用Temp变量作为中继，目的是返回CNT后将其清零*/
-	int16_t Temp;
-	Temp = TIM_GetCounter(TIM3);
-	TIM_SetCounter(TIM3, 0);
-	return Temp;
+    uint16_t cnt = TIM_GetCounter(TIM3);
+    TIM_SetCounter(TIM3, 0);
+    
+    // 处理正反转:如果 cnt > 32767,视为反向(负值)
+    if (cnt > 32767) {
+        return (int16_t)(cnt - 65536);
+    }
+    return (int16_t)cnt;
 }
 
 /**
@@ -90,9 +93,12 @@ int16_t Motor1_getSpeed(void)
   */
 int16_t Motor2_getSpeed(void)
 {
-	/*使用Temp变量作为中继，目的是返回CNT后将其清零*/
-	int16_t Temp;
- 	Temp = TIM_GetCounter(TIM4);
- 	TIM_SetCounter(TIM4, 0);
-	return Temp;
+    uint16_t cnt = TIM_GetCounter(TIM4);
+    TIM_SetCounter(TIM4, 0);
+    
+    // 处理正反转:如果 cnt > 32767,视为反向(负值)
+    if (cnt > 32767) {
+        return (int16_t)(cnt - 65536);
+    }
+    return (int16_t)cnt;
 }
