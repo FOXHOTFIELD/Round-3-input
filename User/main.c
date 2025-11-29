@@ -1,79 +1,6 @@
 #include "myHeader.h"
-
-///* 简单示例：在 STM32F103C8 (BluePill) 上运行 FreeRTOS
-   //- 使用 PC13 作为 LED 输出（常见板载 LED）
-   //- 使用 USART1 通过 Serial_Printf 打印信息
-   //先复用工程中已有的 Serial_Init / Serial_Printf 接口 */
-
-///* 更改 LED 引脚：将原来的 PC13 换为 PA5（示例） */
-//#define LED_PORT GPIOA
-//#define LED_PIN  GPIO_Pin_5
-
-//static void LED_Init(void)
-//{
-	///* 开启 GPIOA 时钟（PA5） */
-	//RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
-	//GPIO_InitTypeDef GPIO_InitStructure;
-	//GPIO_InitStructure.GPIO_Pin = LED_PIN;
-	//GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
-	//GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
-	//GPIO_Init(LED_PORT, &GPIO_InitStructure);
-	///* 初始清零（按需改为 Set），便于观察变化 */
-	//GPIO_ResetBits(LED_PORT, LED_PIN);
-//}
-
-//static void vTaskBlink(void *pvParameters)
-//{
-	//(void)pvParameters;
-	//for (;;)
-	//{
-		///* 翻转引脚：GPIO_ReadOutputDataBit 返回 uint8_t，使用 uint8_t 消除枚举/整型混合警告 */
-		//uint8_t current = GPIO_ReadOutputDataBit(LED_PORT, LED_PIN);
-		//if (current == Bit_SET)
-		//{
-			//GPIO_WriteBit(LED_PORT, LED_PIN, Bit_RESET);
-		//}
-		//else
-		//{
-			//GPIO_WriteBit(LED_PORT, LED_PIN, Bit_SET);
-		//}
-		//vTaskDelay(pdMS_TO_TICKS(500));
-	//}
-//}
-
-//static void vTaskPrint(void *pvParameters)
-//{
-	//(void)pvParameters;
-	//unsigned long cnt = 0;
-	//for (;;)
-	//{
-		//Serial_Printf("FreeRTOS running: %lu\r\n", cnt++);
-		//vTaskDelay(pdMS_TO_TICKS(1000));
-	//}
-//}
-
-//int main(void)
-//{
-////	/* 系统初始化（startup/系统初始化通常已在启动代码中完成） */
-	////SystemInit();
-
-	/////* 初始化串口与 LED */
-	////Serial_Init();
-	////LED_Init();
-
-	/////* 创建任务：优先级 Blink>Print */
-	////xTaskCreate(vTaskBlink, "Blink", 128, NULL, tskIDLE_PRIORITY + 2, NULL);
-	////xTaskCreate(vTaskPrint, "Print", 256, NULL, tskIDLE_PRIORITY + 1, NULL);
-
-	/////* 启动调度 */
-	////vTaskStartScheduler();
-
-	///* 若调度器返回，进入死循环 */
-	//while (1)
-	//{
-	//}
-//}
 #include <math.h>
+#include <string.h>
 
 #define PI 3.14159265358979323846f
 #define SQRT2 1.41421356237309504880f
@@ -133,8 +60,9 @@ const float sample_fs = 100.0f;
 const float cutoff_fc = 10.0f;
 
 /* 在定时器中断中使用的变量需要设为 volatile */
-static volatile int16_t speed1, speed2;
-static volatile uint16_t adcf1, adcf2, adcf3;
+volatile int16_t speed1, speed2;
+volatile uint16_t adcf1, adcf2, adcf3;
+volatile int8_t adcf0, adcf4;
 
 /* 定时器初始化: 使用 TIM2 产生 100Hz 更新中断 (周期 10ms) */
 static void TIM2_Int_Init(void)
@@ -142,7 +70,7 @@ static void TIM2_Int_Init(void)
 	/* 假设 APB1 定时器时钟为 36MHz。PSC = 36000-1 => 1kHz 计数频率 (1ms tick)，ARR = 10-1 => 10ms 周期 */
 	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
 	TIM_TimeBaseInitTypeDef tb;
-	tb.TIM_Period = 10 - 1;           /* 自动重装载值 */
+	tb.TIM_Period = 5 - 1;           /* 自动重装载值 */
 	tb.TIM_Prescaler = 36000 - 1;     /* 预分频 */
 	tb.TIM_ClockDivision = TIM_CKD_DIV1;
 	tb.TIM_CounterMode = TIM_CounterMode_Up;
@@ -153,8 +81,8 @@ static void TIM2_Int_Init(void)
 
 	NVIC_InitTypeDef nvic;
 	nvic.NVIC_IRQChannel = TIM2_IRQn;
-	nvic.NVIC_IRQChannelPreemptionPriority = 1; /* 根据工程优先级需求调整 */
-	nvic.NVIC_IRQChannelSubPriority = 1;
+	nvic.NVIC_IRQChannelPreemptionPriority = 0; /* 根据工程优先级需求调整 */
+	nvic.NVIC_IRQChannelSubPriority = 0;
 	nvic.NVIC_IRQChannelCmd = ENABLE;
 	NVIC_Init(&nvic);
 
@@ -173,7 +101,10 @@ void TIM2_IRQHandler(void)
 		u16 adcx2 = T_Get_Adc_Average(THRD2_ADC_CH0, 10);
 		u16 adcx3 = T_Get_Adc_Average(THRD3_ADC_CH0, 10);
 
-		/* 转为浮点并进行巴特沃斯滤波 */
+
+
+
+///* 转为浮点并进行巴特沃斯滤波 */
 		//float f1 = Butterworth_Filter(&bw1, (float)adcx1);
 		//float f2 = Butterworth_Filter(&bw2, (float)adcx2);
 		//float f3 = Butterworth_Filter(&bw3, (float)adcx3);
@@ -182,20 +113,37 @@ void TIM2_IRQHandler(void)
 		//if (f2 < 0.0f) f2 = 0.0f;
 		//if (f3 < 0.0f) f3 = 0.0f;
 
-//		adcf1 = (u16)(f1 + 0.5f);
-		//adcf2 = (u16)(f2 + 0.5f);
-		//adcf3 = (u16)(f3 + 0.5f);
+		/* 额外读取 PA3(Pin3)/PA4(Pin4) 数字输入，低电平有效 -> 1，高电平 -> 0 */
+		adcf0 = (GPIO_ReadInputDataBit(THRD_PORT, THRD4_GPIO_PIN) == Bit_SET) ? 1 : 0; /* PA3 高电平有效 -> 1 */
+		adcf4 = (GPIO_ReadInputDataBit(THRD_PORT, THRD5_GPIO_PIN) == Bit_SET) ? 1 : 0; /* PA4 高电平有效 -> 1 */
+		adcf1 = (u16)(adcx1 + 0.5f);
+		adcf2 = (u16)(adcx2 + 0.5f);
+		adcf3 = (u16)(adcx3 + 0.5f);
 		speed1 = Motor1_getSpeed() / 4;
-		speed2 = Motor2_getSpeed();
-		Serial_mySend(speed1, speed2);
-
+		speed2 = Motor2_getSpeed() / 4;
+        thrd_correct();
+        thrdPID();
 		/* 更新显示（注意：OLED 与串口操作可能较耗时，若影响实时性可改为设置标志在主循环中处理） */
-//		OLED_ShowNum(1, 1, adcf1, 4, OLED_8X16);
-		//OLED_ShowNum(1, 18, adcf2, 4, OLED_8X16);
-		//OLED_ShowNum(1, 36, adcf3, 4, OLED_8X16);
+		OLED_ShowNum(1, 1, adcf1, 4, OLED_8X16);
+		OLED_ShowNum(1, 18, adcf2, 4, OLED_8X16);
+		OLED_ShowNum(1, 36, adcf3, 4, OLED_8X16);
+        OLED_ShowNum(70, 56, adcf0, 1, OLED_6X8);
+        OLED_ShowNum(80, 56, adcf4, 1, OLED_6X8);
 		OLED_ShowSignedNum(55, 1, speed1, 4, OLED_8X16);
 		OLED_ShowSignedNum(55, 17,speed2, 4, OLED_8X16);
+
+        OLED_ShowNum(30, 1, g_thrd_correct_wip, 1,OLED_6X8);
+//        OLED_ShowNum(60, 30, thrd_BLACK, 4, OLED_6X8);
+        //OLED_ShowNum(60, 39, thrd_WHITE, 4, OLED_6X8);
+        OLED_ShowFloatNum(60, 31, v1, 1, 1, OLED_6X8);
+        OLED_ShowFloatNum(60, 40, v2, 1, 1, OLED_6X8);
+        OLED_ShowFloatNum(60, 49, v3, 1, 1, OLED_6X8);
+        OLED_ShowFloatNum(90, 49, offset, 2, 1, OLED_6X8);
 		OLED_Update();
+
+
+
+	//Serial_mySend(speed1, speed2, offset);
 
 
 
@@ -204,6 +152,26 @@ void TIM2_IRQHandler(void)
 			OLED_ShowString(1, 1, Serial_RxPacket, OLED_6X8);
 			OLED_Update();
 			Serial_SendString(Serial_RxPacket);
+
+            	float data = 0;
+				char Cmd;
+            	sscanf(Serial_RxPacket, "%c%f", &Cmd, &data);
+				//OLED_ShowString(2, 5, Cmd);
+                //OLED_ShowString(10, 1, Rx_buf, OLED_6X8);
+				if(Cmd == 'S') {
+
+                }
+				//else if(Cmd == 'i') Motor1_Data.Ki = data;
+				//else if(Cmd == 'p') Motor1_Data.Kp = data;
+				//else if(Cmd == 'd') Motor1_Data.Kd = data;
+				else if(Cmd == 'i') Ki = data;
+				else if(Cmd == 'p') Kp = data;
+				else if(Cmd == 'd') Kd = data;
+				OLED_ShowFloatNum(33, 1, Kp,1, 2, OLED_6X8);
+				OLED_ShowFloatNum(33, 9, Ki,1, 2, OLED_6X8);
+				OLED_ShowFloatNum(33, 18, Kd,1, 2, OLED_6X8);
+
+
 			Serial_RxFlag = 0;
 		}
 	}

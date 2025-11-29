@@ -680,6 +680,16 @@
               <FileType>5</FileType>
               <FilePath>.\System\sys.h</FilePath>
             </File>
+            <File>
+              <FileName>thrd_pid.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\System\thrd_pid.c</FilePath>
+            </File>
+            <File>
+              <FileName>thrd_pid.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\System\thrd_pid.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

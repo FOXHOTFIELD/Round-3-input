@@ -7,3 +7,5 @@
 #include "thrd.h"
 #include "adc.h"
 #include "Encoder.h"
+#include "thrd_pid.h"
+#include "myClaim.h"

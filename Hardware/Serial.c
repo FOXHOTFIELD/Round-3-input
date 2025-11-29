@@ -188,22 +188,12 @@ uint8_t Serial_GetRxData(void)
   */
 void Serial_SendJustFloat(float *data, uint16_t num)
 {
-    uint8_t i;
-    uint8_t *dataBytes;
-    //uint8_t header[] = JUSTFLOAT_HEADER;
-    uint8_t tail[] = JUSTFLOAT_TAIL;
-    
-    /*发送帧头*/
-    //Serial_SendArray(header, sizeof(header));
-    
-    /*发送浮点数据（小端模式）*/
-    for (i = 0; i < num; i++) {
-        dataBytes = (uint8_t *)&data[i];
-        Serial_SendArray(dataBytes, 4); // 每个float占4字节
-    }
-    
-    /*发送帧尾*/
-    Serial_SendArray(tail, sizeof(tail));
+	uint8_t tail[] = JUSTFLOAT_TAIL;
+	for(uint16_t i=0; i<num; i++){
+		uint8_t *p = (uint8_t *)&data[i];
+		Serial_SendArray(p, 4);
+	}
+	Serial_SendArray(tail, sizeof(tail));
 }
 
 /**
@@ -261,7 +251,7 @@ void USART1_IRQHandler(void)
 	}
 }
 
-void Serial_mySend(int16_t speed1, int16_t speed2)
+void Serial_mySend(int16_t speed1, int16_t speed2, float offsetValue, uint8_t status)
 {
 	Serial_SendByte('@');
 	/* 以小端顺序发送两个 int16：低字节在前，高字节在后 */
@@ -269,5 +259,22 @@ void Serial_mySend(int16_t speed1, int16_t speed2)
 	Serial_SendByte((uint8_t)((speed1 >> 8) & 0xFF));
 	Serial_SendByte((uint8_t)(speed2 & 0xFF));
 	Serial_SendByte((uint8_t)((speed2 >> 8) & 0xFF));
+	/* 继续以小端顺序发送 offset 的 IEEE754 表示 */
+	uint8_t *offsetBytes = (uint8_t *)&offsetValue;
+	Serial_SendArray(offsetBytes, sizeof(offsetValue));
+	/* 发送 status */
+	Serial_SendByte(status);
 	Serial_SendString("\r\n");
+}
+
+void Serial_processCMD(void)
+{
+    if(Serial_RxFlag)
+    {
+        if(!strcmp(Serial_RxPacket, "aaa")){
+            g_thrd_correct_wip = 1;
+        }
+
+        Serial_RxFlag = 0;
+    }
 }
