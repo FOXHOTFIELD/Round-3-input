@@ -14,6 +14,15 @@ static volatile float DifOut = 0, Actual1 = 0;				//微分项输出，上次实�
 #define INTEGRAL_MAX 10.0f		//积分限幅
 #define OUTPUT_MAX 20.0f		//输出限幅
 
+/* 边缘数字传感器权重: adcf0/adcf4 为二值量(0/1)。
+    通过宏可调节它们在质心计算中的影响力。默认与旧代码近似值 1.5f。 */
+#define THRD_ADC0_WEIGHT 1.5f
+#define THRD_ADC4_WEIGHT 1.5f
+/* 中间模拟传感器的整体权重（可调整），1.0 表示按归一化后直接参与质心计算 */
+#define THRD_ANALOG_WEIGHT 1.0f
+/* 丢线时寻找用的固定偏移，正值表示向左搜索（与 offset 符号约定一致） */
+#define THRD_SEARCH_OFFSET 2.0f
+
 volatile float v1 = 0, v2 = 0, v3 = 0;
 volatile float offset = 0;
 
@@ -26,6 +35,15 @@ typedef struct {
 } LineStatus_t;
 
 static LineStatus_t Status = {4, 4, 4, 0}; // 初始化为中心状态(扩展为7态, 中心为4)
+
+// pattern5 映射表: index = (b0<<4)|(b1<<3)|(b2<<2)|(b3<<1)|b4 -> 状态 1..7
+// 生成规则（用于参考）: score = -3*b0 -1*b1 +0*b2 +1*b3 +3*b4; state = clamp(score+4,1,7)
+static uint8_t pattern_map[32] = {
+    /*  0..7  */ 4,7,5,7, 4,7,5,7,
+    /*  8..15 */ 6,6,6,7, 6,6,6,7,   // 扩宽右侧靠近状态6的映射
+    /* 16..23 */ 1,2,2,5, 1,2,2,5,   // 扩宽左侧靠近状态2的映射
+    /* 24..31 */ 1,2,1,2, 1,2,1,4    // 更多左偏组合映射为2
+};
 
 void thrdPID(void)
 {
@@ -61,41 +79,15 @@ void thrdPID(void)
 
     if (pattern5 == 0)
     {
-        // 全白(脱线): 根据上一次状态推断方向
+        // 全白(脱线): 保留原有策略，根据上一次状态推断方向
         if (Status.curStatus <= 3) newStatus = 1; // 偏左->极左
         else if (Status.curStatus >= 5) newStatus = 7; // 偏右->极右
         else newStatus = 4; // 中心 -> 仍认为中心
     }
-    else if (pattern5 == 0x1F)
-    {
-        // 全黑(宽线或交叉) -> 中心
-        newStatus = 4;
-    }
     else
     {
-        // 按常见位组合优先级匹配到 1..7
-        // 优先匹配明显单/相邻组合，其他组合保持当前状态以减少抖动
-
-        // 极左/极右优先
-        if (b0 && !b1 && !b2 && !b3 && !b4) newStatus = 1;
-        else if (b4 && !b3 && !b2 && !b1 && !b0) newStatus = 7;
-        // 左侧组合
-        else if (b0 && b1 && !b2) newStatus = 2;
-        else if (b1 && !b0 && !b2 && !b3) newStatus = 3;
-        else if (b1 && b2 && !b3) newStatus = 3;
-        // 中间
-        else if (b2 && !b1 && !b3) newStatus = 4;
-        // 右侧组合
-        else if (b2 && b3 && !b4) newStatus = 5;
-        else if (b3 && !b2 && !b4 && !b1) newStatus = 5;
-        else if (b3 && b4 && !b2) newStatus = 6;
-        // 两端同时检测，认为在中间
-        else if (b0 && b4) newStatus = 4;
-        else
-        {
-            // 其它复杂组合：保持当前状态以避免抖动
-            newStatus = Status.curStatus;
-        }
+        // 使用查表映射（包含全黑的映射），由 pattern5 直接索引到状态 1..7
+        newStatus = pattern_map[pattern5];
     }
     
     // 状态机逻辑: 检查新状态是否与临时状态相同
@@ -124,8 +116,44 @@ void thrdPID(void)
 
     
 
-        if((adcf0 && adcf4) || (!adcf0 && !adcf4)) offset = v1-v3;//v1->left v3->right. if v1 > v3, offset > 0, need to turn left.
-        else offset =(adcf0 * 1.5) + (adcf4 * (-1.5));
+        /* 使用质心法计算 offset：
+           - adcf1..adcf3 已归一化(v1..v3)，按 THRD_ANALOG_WEIGHT 权重参与
+           - adcf0/adcf4 为二值量，按宏 THRD_ADC0_WEIGHT/THRD_ADC4_WEIGHT 参与
+           - 位置坐标取：adcf0=-2, adcf1=-1, adcf2=0, adcf3=1, adcf4=2
+           - 为保持与旧代码语义一致（v1>v3 时 offset>0 表示需要向左转），
+             我们令 offset = -centroid（质心取负）
+        */
+        {
+            float s0 = adcf0 ? THRD_ADC0_WEIGHT : 0.0f;
+            float s1 = v1 * THRD_ANALOG_WEIGHT;
+            float s2 = v2 * THRD_ANALOG_WEIGHT;
+            float s3 = v3 * THRD_ANALOG_WEIGHT;
+            float s4 = adcf4 ? THRD_ADC4_WEIGHT : 0.0f;
+
+            float numerator = s0 * (-2.0f) + s1 * (-1.0f) + s2 * 0.0f + s3 * 1.0f + s4 * 2.0f;
+            float denom = s0 + s1 + s2 + s3 + s4;
+
+            if (denom > 1e-6f) {
+                float centroid = numerator / denom;
+                offset = -centroid; // 左偏为正
+            } else {
+                /* 无信号或丢线：进入寻找策略
+                   - 若上一次/当前状态偏左，则向左搜索（offset 正）
+                   - 若上一次/当前状态偏右，则向右搜索（offset 负）
+                   - 若无法判断，则默认向左搜索
+                */
+                if (Status.curStatus <= 3) {
+                    offset = THRD_SEARCH_OFFSET; // 偏左，向左搜
+                } else if (Status.curStatus >= 5) {
+                    offset = -THRD_SEARCH_OFFSET; // 偏右，向右搜
+                } else {
+                    /* 当前为中心(4)或未知，参考上一次状态再决定 */
+                    if (Status.lstStatus <= 3) offset = THRD_SEARCH_OFFSET;
+                    else if (Status.lstStatus >= 5) offset = -THRD_SEARCH_OFFSET;
+                    else offset = THRD_SEARCH_OFFSET; // 最后兜底，向左
+                }
+            }
+        }
         //if(Status.curStatus == 3) offset = 0;       //如果在状态3 则不希
         
         /*获取本次实际位置值和上次实际位置值*/
