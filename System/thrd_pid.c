@@ -46,7 +46,7 @@ static float hairpin_phase = 0.0f;        // 发卡弯摆动相位
 static int8_t hairpin_prefer_sign = 1;    // 1=优先向左, -1=优先向右
 
 /* PID 切换：当偏移量较大时使用更激进的 PID 参数；使用滞回防止频繁切换 */
-#define THRD_PID_SWITCH_THRESHOLD 1.60f    /* 绝对 offset 超过此值使用 large PID */
+#define THRD_PID_SWITCH_THRESHOLD 1.90f    /* 绝对 offset 超过此值使用 large PID */
 #define THRD_PID_SWITCH_HYSTERESIS 0.15f   /* 滞回量 */
 /* large PID 参数（偏移较大时使用）——建议：增大 P 和 D，减小 I */
 #define THRD_PID_LARGE_KP 35.0f
