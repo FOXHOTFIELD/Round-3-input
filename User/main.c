@@ -62,6 +62,7 @@ const float cutoff_fc = 10.0f;
 /* 在定时器中断中使用的变量需要设为 volatile */
 volatile int16_t speed1, speed2;
 volatile uint16_t adcf1, adcf2, adcf3;
+volatile int8_t adcf0, adcf4;
 
 /* 定时器初始化: 使用 TIM2 产生 100Hz 更新中断 (周期 10ms) */
 static void TIM2_Int_Init(void)
@@ -100,6 +101,9 @@ void TIM2_IRQHandler(void)
 		u16 adcx2 = T_Get_Adc_Average(THRD2_ADC_CH0, 10);
 		u16 adcx3 = T_Get_Adc_Average(THRD3_ADC_CH0, 10);
 
+
+
+
 ///* 转为浮点并进行巴特沃斯滤波 */
 		//float f1 = Butterworth_Filter(&bw1, (float)adcx1);
 		//float f2 = Butterworth_Filter(&bw2, (float)adcx2);
@@ -109,17 +113,22 @@ void TIM2_IRQHandler(void)
 		//if (f2 < 0.0f) f2 = 0.0f;
 		//if (f3 < 0.0f) f3 = 0.0f;
 
+		/* 额外读取 PA3(Pin3)/PA4(Pin4) 数字输入，低电平有效 -> 1，高电平 -> 0 */
+		adcf0 = (GPIO_ReadInputDataBit(THRD_PORT, THRD4_GPIO_PIN) == Bit_SET) ? 1 : 0; /* PA3 高电平有效 -> 1 */
+		adcf4 = (GPIO_ReadInputDataBit(THRD_PORT, THRD5_GPIO_PIN) == Bit_SET) ? 1 : 0; /* PA4 高电平有效 -> 1 */
 		adcf1 = (u16)(adcx1 + 0.5f);
 		adcf2 = (u16)(adcx2 + 0.5f);
 		adcf3 = (u16)(adcx3 + 0.5f);
-		speed1 = Motor1_getSpeed() / 4.0;
-		speed2 = Motor2_getSpeed() / 4.0;
+		speed1 = Motor1_getSpeed() / 4;
+		speed2 = Motor2_getSpeed() / 4;
         thrd_correct();
         thrdPID();
 		/* 更新显示（注意：OLED 与串口操作可能较耗时，若影响实时性可改为设置标志在主循环中处理） */
 		OLED_ShowNum(1, 1, adcf1, 4, OLED_8X16);
 		OLED_ShowNum(1, 18, adcf2, 4, OLED_8X16);
 		OLED_ShowNum(1, 36, adcf3, 4, OLED_8X16);
+        OLED_ShowNum(70, 56, adcf0, 1, OLED_6X8);
+        OLED_ShowNum(80, 56, adcf4, 1, OLED_6X8);
 		OLED_ShowSignedNum(55, 1, speed1, 4, OLED_8X16);
 		OLED_ShowSignedNum(55, 17,speed2, 4, OLED_8X16);
 
@@ -129,7 +138,7 @@ void TIM2_IRQHandler(void)
         OLED_ShowFloatNum(60, 31, v1, 1, 1, OLED_6X8);
         OLED_ShowFloatNum(60, 40, v2, 1, 1, OLED_6X8);
         OLED_ShowFloatNum(60, 49, v3, 1, 1, OLED_6X8);
-        OLED_ShowFloatNum(90, 49, offset, 1, 1, OLED_6X8);
+        OLED_ShowFloatNum(90, 49, offset, 2, 1, OLED_6X8);
 		OLED_Update();
 
 

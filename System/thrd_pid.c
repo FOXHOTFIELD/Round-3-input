@@ -19,64 +19,83 @@ volatile float offset = 0;
 
 // 状态机结构
 typedef struct {
-    uint8_t curStatus;   // 当前状态: 1-极左 2-左偏 3-中心 4-右偏 5-极右
+    uint8_t curStatus;   // 当前状态: 1-极左 2-左 3-偏左 4-中心 5-偏右 6-右 7-极右
     uint8_t lstStatus;   // 上一个状态
     uint8_t tempStatus;  // 临时状态
     uint8_t sameCount;   // 相同状态计数
 } LineStatus_t;
 
-static LineStatus_t Status = {3, 3, 3, 0}; // 初始化为中心状态
+static LineStatus_t Status = {4, 4, 4, 0}; // 初始化为中心状态(扩展为7态, 中心为4)
 
 void thrdPID(void)
 {
     if(!g_thrd_correct_finished) return;
 
-    /*归一化: 先进行范围归一化,再除以总和保证相加为1*/
-    v1 = (adcf1 - thrd_WHITE) * 1.0 / (thrd_BLACK - thrd_WHITE);
-    v2 = (adcf2 - thrd_WHITE) * 1.0 / (thrd_BLACK - thrd_WHITE);
-    v3 = (adcf3 - thrd_WHITE) * 1.0 / (thrd_BLACK - thrd_WHITE);
-    
+    /*归一化: 先进行范围归一化,再除以总和保证相加为1 (3个模拟传感器: adcf1..adcf3)
+      注意: adcf0 与 adcf4 为数字量(0/1), 不参与模拟归一化，仅用作边界指示*/
+    v1 = (adcf1 - thrd_WHITE) * 1.0f / (thrd_BLACK - thrd_WHITE);
+    v2 = (adcf2 - thrd_WHITE) * 1.0f / (thrd_BLACK - thrd_WHITE);
+    v3 = (adcf3 - thrd_WHITE) * 1.0f / (thrd_BLACK - thrd_WHITE);
+
     // 计算总和并归一化,使三值相加为1
     float sum = v1 + v2 + v3;
-    if(sum > 0.001f) { // 避免除零
-        v1 /= sum;
-        v2 /= sum;
-        v3 /= sum;
+    if (sum > 0.001f) { // 避免除零
+        v1 /= sum; v2 /= sum; v3 /= sum;
     }
 
     //float adc[6] = {adcf1, adcf2, adcf3, v1, v2, v3};
     //Serial_SendJustFloat(adc, 6);
 
-    /*二值化判断: 以1000为界*/
+    /*二值化判断: adcf0 与 adcf4 实为数字量(0/1)，adcf1..3 为 ADC 值，仍用阈值区分（兼容旧代码）*/
+    uint8_t b0 = (adcf0) ? 1 : 0; // 最左侧数字传感器 (真实为 0/1)
     uint8_t b1 = (adcf1 > 1000) ? 1 : 0; // 左侧传感器
     uint8_t b2 = (adcf2 > 1000) ? 1 : 0; // 中间传感器
     uint8_t b3 = (adcf3 > 1000) ? 1 : 0; // 右侧传感器
-    
+    uint8_t b4 = (adcf4) ? 1 : 0; // 最右侧数字传感器 (真实为 0/1)
+
     // 临时状态变量用于存储本次读取的状态
-    uint8_t newStatus = 3; // 默认为中心状态
-    
-    // 使用位模式匹配进行状态判断(二值化传感器)
-    uint8_t pattern = (b1 << 2) | (b2 << 1) | b3;
-    
-    if(pattern == 2){ // 010 - 中心
-        newStatus = 3;
-    }else if(pattern == 6 || pattern == 4){ // 110/100 - 左偏
-        newStatus = 2;
-    }else if(pattern == 3 || pattern == 1){ // 011/001 - 右偏
+    uint8_t newStatus = 4; // 默认为中心状态(扩展后中心为4)
+
+    // 仅使用二值化模式判断（不计算质心）
+    uint8_t pattern5 = (b0 << 4) | (b1 << 3) | (b2 << 2) | (b3 << 1) | b4;
+
+    if (pattern5 == 0)
+    {
+        // 全白(脱线): 根据上一次状态推断方向
+        if (Status.curStatus <= 3) newStatus = 1; // 偏左->极左
+        else if (Status.curStatus >= 5) newStatus = 7; // 偏右->极右
+        else newStatus = 4; // 中心 -> 仍认为中心
+    }
+    else if (pattern5 == 0x1F)
+    {
+        // 全黑(宽线或交叉) -> 中心
         newStatus = 4;
-    }else if(pattern == 7){ // 111 - 全黑(交叉路口或宽线)
-        newStatus = 3;
-    }else if(pattern == 0){ // 000 - 全白(脱线)
-        // 根据上一次状态推断方向
-        if(Status.curStatus == 2 || Status.curStatus == 1){
-            newStatus = 1; // 极左
-        }else if(Status.curStatus == 4 || Status.curStatus == 5){
-            newStatus = 5; // 极右
-        }else{
-            newStatus = 3; // 默认中心
+    }
+    else
+    {
+        // 按常见位组合优先级匹配到 1..7
+        // 优先匹配明显单/相邻组合，其他组合保持当前状态以减少抖动
+
+        // 极左/极右优先
+        if (b0 && !b1 && !b2 && !b3 && !b4) newStatus = 1;
+        else if (b4 && !b3 && !b2 && !b1 && !b0) newStatus = 7;
+        // 左侧组合
+        else if (b0 && b1 && !b2) newStatus = 2;
+        else if (b1 && !b0 && !b2 && !b3) newStatus = 3;
+        else if (b1 && b2 && !b3) newStatus = 3;
+        // 中间
+        else if (b2 && !b1 && !b3) newStatus = 4;
+        // 右侧组合
+        else if (b2 && b3 && !b4) newStatus = 5;
+        else if (b3 && !b2 && !b4 && !b1) newStatus = 5;
+        else if (b3 && b4 && !b2) newStatus = 6;
+        // 两端同时检测，认为在中间
+        else if (b0 && b4) newStatus = 4;
+        else
+        {
+            // 其它复杂组合：保持当前状态以避免抖动
+            newStatus = Status.curStatus;
         }
-    }else{ // 其他情况保持当前状态
-        newStatus = Status.curStatus;
     }
     
     // 状态机逻辑: 检查新状态是否与临时状态相同
@@ -105,7 +124,8 @@ void thrdPID(void)
 
     
 
-        offset = v1 - v3; //v1->left v3->right. if v1 > v3, offset > 0, need to turn left.
+        if((adcf0 && adcf4) || (!adcf0 && !adcf4)) offset = v1-v3;//v1->left v3->right. if v1 > v3, offset > 0, need to turn left.
+        else offset =(adcf0 * 1.5) + (adcf4 * (-1.5));
         //if(Status.curStatus == 3) offset = 0;       //如果在状态3 则不希
         
         /*获取本次实际位置值和上次实际位置值*/
