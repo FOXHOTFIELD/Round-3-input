@@ -7,7 +7,7 @@ uint8_t thrd_correct_count = 0; //校正计数
 uint8_t g_thrd_correct_finished = 0;
 
 static volatile float Target = 0, Actual = 0, Out = 0;			//目标值，实际值，输出值
-volatile float Kp = 25 , Ki = 0.5, Kd = 0.35;					//比例项，积分项，微分项的权重
+volatile float Kp = 22 , Ki = 0, Kd = 1.1;					//比例项，积分项，微分项的权重
 static volatile float Error0 = 0, Error1 = 0, ErrorInt = 0;		//本次误差，上次误差，误差积分
 static volatile float DifOut = 0, Actual1 = 0;				//微分项输出，上次实际值
 
@@ -50,12 +50,18 @@ static int8_t hairpin_prefer_sign = 1;    // 1=优先向左, -1=优先向右
 #define THRD_PID_SWITCH_HYSTERESIS 0.15f   /* 滞回量 */
 /* large PID 参数（偏移较大时使用）——建议：增大 P 和 D，减小 I */
 #define THRD_PID_LARGE_KP 35.0f
-#define THRD_PID_LARGE_KI 0.20f
+#define THRD_PID_LARGE_KI 0.10f
 #define THRD_PID_LARGE_KD 1.0f
+
+/* PID 过渡（平滑线性插值）设置: 过渡分成若干步，默认 20 步 */
+#define THRD_PID_TRANSITION_STEPS 15
 
 /* small PID 使用文件顶部的 Kp/Ki/Kd 变量（默认值保留）
     运行时用 thrd_pid_mode 切换生效参数 */
 static uint8_t thrd_pid_mode = 0; /* 0 = small(default), 1 = large */
+static uint8_t thrd_pid_target_mode = 0; /* 目标模式, 与 thrd_pid_mode 协作用于平滑过渡 */
+static uint8_t thrd_pid_transition = 0; /* 过渡进行中标志 */
+static uint16_t thrd_pid_transition_cnt = 0; /* 已过渡步数 */
 
 volatile float v1 = 0, v2 = 0, v3 = 0;
 volatile float offset = 0;
@@ -278,32 +284,82 @@ void thrdPID(void)
             float abs_off = fabsf(offset);
             /* 切换逻辑：当处于 small 模式且偏移过大，切换到 large；
                当处于 large 且偏移小于阈值减滞回时切回 small */
-            if (thrd_pid_mode == 0) {
-                if (abs_off > THRD_PID_SWITCH_THRESHOLD) {
-                    thrd_pid_mode = 1;
-                    /* 减小积分项影响以避免突变过大 */
-                    ErrorInt *= 0.5f;
-                }
-            } else {
-                if (abs_off < (THRD_PID_SWITCH_THRESHOLD - THRD_PID_SWITCH_HYSTERESIS)) {
-                    thrd_pid_mode = 0;
+            /* 切换逻辑：当处于 small 模式且偏移过大，开始过渡到 large；
+               当处于 large 且偏移小于阈值减滞回时，开始过渡回 small
+               这里不再立即修改 ErrorInt，而是使用线性插值在若干步内平滑过渡参数和积分缩放。 */
+            if (thrd_pid_transition == 0) {
+                if (thrd_pid_mode == 0) {
+                    if (abs_off > THRD_PID_SWITCH_THRESHOLD) {
+                        thrd_pid_target_mode = 1;
+                        thrd_pid_transition = 1;
+                        thrd_pid_transition_cnt = 0;
+                    }
+                } else {
+                    if (abs_off < (THRD_PID_SWITCH_THRESHOLD - THRD_PID_SWITCH_HYSTERESIS)) {
+                        thrd_pid_target_mode = 0;
+                        thrd_pid_transition = 1;
+                        thrd_pid_transition_cnt = 0;
+                    }
                 }
             }
 
             float Kp_eff = Kp;
             float Ki_eff = Ki;
             float Kd_eff = Kd;
-            if (thrd_pid_mode) {
-                Kp_eff = THRD_PID_LARGE_KP;
-                Ki_eff = THRD_PID_LARGE_KI;
-                Kd_eff = THRD_PID_LARGE_KD;
+            float ErrorInt_used = ErrorInt; /* 用于 PID 计算的积分项（可能被平滑缩放） */
+
+            if (thrd_pid_transition) {
+                /* 计算插值因子 alpha: 0..1 */
+                float alpha = (float)thrd_pid_transition_cnt / (float)THRD_PID_TRANSITION_STEPS;
+                if (alpha > 1.0f) alpha = 1.0f;
+
+                if (thrd_pid_mode == 0 && thrd_pid_target_mode == 1) {
+                    /* small -> large */
+                    Kp_eff = Kp + (THRD_PID_LARGE_KP - Kp) * alpha;
+                    Ki_eff = Ki + (THRD_PID_LARGE_KI - Ki) * alpha;
+                    Kd_eff = Kd + (THRD_PID_LARGE_KD - Kd) * alpha;
+                    /* ErrorInt 从 1.0 缩放到 0.5 */
+                    float scale = 1.0f - 0.5f * alpha;
+                    ErrorInt_used = ErrorInt * scale;
+                } else if (thrd_pid_mode == 1 && thrd_pid_target_mode == 0) {
+                    /* large -> small */
+                    Kp_eff = THRD_PID_LARGE_KP + (Kp - THRD_PID_LARGE_KP) * alpha;
+                    Ki_eff = THRD_PID_LARGE_KI + (Ki - THRD_PID_LARGE_KI) * alpha;
+                    Kd_eff = THRD_PID_LARGE_KD + (Kd - THRD_PID_LARGE_KD) * alpha;
+                    /* ErrorInt 从 0.5 平滑恢复到 1.0 */
+                    float scale = 0.5f + 0.5f * alpha;
+                    ErrorInt_used = ErrorInt * scale;
+                } else {
+                    /* 如果目标与当前一致，直接结束过渡 */
+                    thrd_pid_transition = 0;
+                }
+
+                thrd_pid_transition_cnt++;
+                if (thrd_pid_transition_cnt >= THRD_PID_TRANSITION_STEPS) {
+                    /* 结束过渡，正式切换模式 */
+                    thrd_pid_transition = 0;
+                    thrd_pid_mode = thrd_pid_target_mode;
+                }
+            } else {
+                /* 非过渡期直接按当前模式选择参数 */
+                if (thrd_pid_mode) {
+                    Kp_eff = THRD_PID_LARGE_KP;
+                    Ki_eff = THRD_PID_LARGE_KI;
+                    Kd_eff = THRD_PID_LARGE_KD;
+                    ErrorInt_used = ErrorInt; /* large 模式下不再立即缩放（已通过过渡处理） */
+                } else {
+                    Kp_eff = Kp;
+                    Ki_eff = Ki;
+                    Kd_eff = Kd;
+                    ErrorInt_used = ErrorInt;
+                }
             }
 
             /* 微分先行公式，使用有效 Kd */
             DifOut = - Kd_eff * (Actual - Actual1);
 
-            /* 位置式PID计算，使用有效 Kp/Ki */
-            Out = Kp_eff * Error0 + Ki_eff * ErrorInt + DifOut;
+            /* 位置式PID计算，使用有效 Kp/Ki 和可能被平滑缩放的 ErrorInt_used */
+            Out = Kp_eff * Error0 + Ki_eff * ErrorInt_used + DifOut;
         }
         
         /*输出限幅*/
