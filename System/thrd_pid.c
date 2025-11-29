@@ -29,6 +29,10 @@ static volatile float DifOut = 0, Actual1 = 0;				//微分项输出，上次实�
 /* 每次调用相位增量，单位为弧度。可调节搜索速度：值越大摆动越快 */
 #define THRD_SEARCH_STEP 0.0f
 
+/* 当脱线且计算出的 offset 很小时，基于状态强制一个最小偏移，避免无法转向。
+    可根据车辆调参。正值表示向左搜索/转向，负值表示向右。 */
+#define THRD_MIN_OVERRIDE_OFFSET 0.8f
+
 /* 周期摆动搜线状态变量（文件级静态） */
 static float thrd_search_phase = 0.0f;
 static uint8_t thrd_searching = 0;
@@ -55,6 +59,17 @@ static int8_t hairpin_prefer_sign = 1;    // 1=优先向左, -1=优先向右
 
 /* PID 过渡（平滑线性插值）设置: 过渡分成若干步，默认 20 步 */
 #define THRD_PID_TRANSITION_STEPS 15
+/*
+ * 曲线插值（缓动）: 为了比线性插值更平滑的模式切换，使用余弦缓入/缓出（ease-in-out）:
+ * eased = 0.5 * (1 - cos(pi * t)), t in [0,1]
+ * 这样在切换开始与结束时会更平滑，减少突变。
+ */
+static inline float thrd_pid_ease(float t)
+{
+    if (t <= 0.0f) return 0.0f;
+    if (t >= 1.0f) return 1.0f;
+    return 0.5f * (1.0f - cosf(THRD_PI * t));
+}
 
 /* small PID 使用文件顶部的 Kp/Ki/Kd 变量（默认值保留）
     运行时用 thrd_pid_mode 切换生效参数 */
@@ -184,6 +199,22 @@ void thrdPID(void)
                     hairpin_detect_cnt = 0;
                     hairpin_exec_cnt = 0;
                 }
+                /*
+                 * 修复：某些情况下二值/状态判定已经表明车在极左/极右（Status=1或7），
+                 * 但质心计算由于噪声等原因得到接近 0 的 offset，导致转向无响应。
+                 * 这里基于状态在 offset 很小的时候强制一个最小偏移量，确保向检测到的方向转向。
+                 */
+                /* 脱线判断：使用原始 ADC 值判断是否脱线（阈值 310），而不是依赖计算出的 offset 很小。
+                   当三路中间传感器都很小（都 < 310）时认为脱线，根据状态强制偏移以转向。 */
+                if (adcf1 < thrd_WHITE + 10 && adcf2 < thrd_WHITE + 10 && adcf3 < thrd_WHITE + 10) {
+                    if (Status.curStatus <= 3) {
+                        /* 偏左，强制向左偏移 */
+                        offset = THRD_SEARCH_OFFSET;
+                    } else if (Status.curStatus >= 5) {
+                        /* 偏右，强制向右偏移（注意符号：右转为负） */
+                        offset = -THRD_SEARCH_OFFSET;
+                    }
+                }
             } else {
                 /* 先进行发卡弯检测：当左右边缘同时感应到黑且中间很弱时，累加检测计数 */
                 if (adcf0 && adcf4 && (v2 < 0.12f || b2 == 0)) {
@@ -309,25 +340,26 @@ void thrdPID(void)
             float ErrorInt_used = ErrorInt; /* 用于 PID 计算的积分项（可能被平滑缩放） */
 
             if (thrd_pid_transition) {
-                /* 计算插值因子 alpha: 0..1 */
-                float alpha = (float)thrd_pid_transition_cnt / (float)THRD_PID_TRANSITION_STEPS;
+                /* 计算插值因子 alpha: 0..1 （用缓动函数平滑过渡） */
+                float alpha = (THRD_PID_TRANSITION_STEPS > 0) ? ((float)thrd_pid_transition_cnt / (float)THRD_PID_TRANSITION_STEPS) : 1.0f;
                 if (alpha > 1.0f) alpha = 1.0f;
+                float eased = thrd_pid_ease(alpha);
 
                 if (thrd_pid_mode == 0 && thrd_pid_target_mode == 1) {
                     /* small -> large */
-                    Kp_eff = Kp + (THRD_PID_LARGE_KP - Kp) * alpha;
-                    Ki_eff = Ki + (THRD_PID_LARGE_KI - Ki) * alpha;
-                    Kd_eff = Kd + (THRD_PID_LARGE_KD - Kd) * alpha;
-                    /* ErrorInt 从 1.0 缩放到 0.5 */
-                    float scale = 1.0f - 0.5f * alpha;
+                    Kp_eff = Kp + (THRD_PID_LARGE_KP - Kp) * eased;
+                    Ki_eff = Ki + (THRD_PID_LARGE_KI - Ki) * eased;
+                    Kd_eff = Kd + (THRD_PID_LARGE_KD - Kd) * eased;
+                    /* ErrorInt 从 1.0 缩放到 0.5 (使用 eased) */
+                    float scale = 1.0f - 0.5f * eased;
                     ErrorInt_used = ErrorInt * scale;
                 } else if (thrd_pid_mode == 1 && thrd_pid_target_mode == 0) {
                     /* large -> small */
-                    Kp_eff = THRD_PID_LARGE_KP + (Kp - THRD_PID_LARGE_KP) * alpha;
-                    Ki_eff = THRD_PID_LARGE_KI + (Ki - THRD_PID_LARGE_KI) * alpha;
-                    Kd_eff = THRD_PID_LARGE_KD + (Kd - THRD_PID_LARGE_KD) * alpha;
-                    /* ErrorInt 从 0.5 平滑恢复到 1.0 */
-                    float scale = 0.5f + 0.5f * alpha;
+                    Kp_eff = THRD_PID_LARGE_KP + (Kp - THRD_PID_LARGE_KP) * eased;
+                    Ki_eff = THRD_PID_LARGE_KI + (Ki - THRD_PID_LARGE_KI) * eased;
+                    Kd_eff = THRD_PID_LARGE_KD + (Kd - THRD_PID_LARGE_KD) * eased;
+                    /* ErrorInt 从 0.5 平滑恢复到 1.0 (使用 eased) */
+                    float scale = 0.5f + 0.5f * eased;
                     ErrorInt_used = ErrorInt * scale;
                 } else {
                     /* 如果目标与当前一致，直接结束过渡 */
@@ -363,8 +395,8 @@ void thrdPID(void)
         }
         
         /*输出限幅*/
-        //if (Out > OUTPUT_MAX) {Out = OUTPUT_MAX;}		//限制输出值最大
-        //if (Out < -OUTPUT_MAX) {Out = -OUTPUT_MAX;}	//限制输出值最小
+        if (Out > OUTPUT_MAX) {Out = OUTPUT_MAX;}		//限制输出值最大
+        if (Out < -OUTPUT_MAX) {Out = -OUTPUT_MAX;}	//限制输出值最小
 
         //if(Status.curStatus == 3) Out = 0;
         
