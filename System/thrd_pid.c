@@ -7,7 +7,7 @@ uint8_t thrd_correct_count = 0; //校正计数
 uint8_t g_thrd_correct_finished = 0;
 
 static volatile float Target = 0, Actual = 0, Out = 0;			//目标值，实际值，输出值
-volatile float Kp = 20 , Ki = 0.5, Kd = 0.35;					//比例项，积分项，微分项的权重
+volatile float Kp = 25 , Ki = 0.5, Kd = 0.35;					//比例项，积分项，微分项的权重
 static volatile float Error0 = 0, Error1 = 0, ErrorInt = 0;		//本次误差，上次误差，误差积分
 static volatile float DifOut = 0, Actual1 = 0;				//微分项输出，上次实际值
 
@@ -27,11 +27,35 @@ static volatile float DifOut = 0, Actual1 = 0;				//微分项输出，上次实�
 /* 摆动振幅（与 THRD_SEARCH_OFFSET 保持一致） */
 #define THRD_SEARCH_AMPLITUDE THRD_SEARCH_OFFSET
 /* 每次调用相位增量，单位为弧度。可调节搜索速度：值越大摆动越快 */
-#define THRD_SEARCH_STEP 0.1f
+#define THRD_SEARCH_STEP 0.0f
 
 /* 周期摆动搜线状态变量（文件级静态） */
 static float thrd_search_phase = 0.0f;
 static uint8_t thrd_searching = 0;
+
+/* 发卡弯（hairpin）检测与应对：仅调整 offset 来实现转向 */
+#define THRD_HAIRPIN_DETECT_CNT_THRESH 4
+#define THRD_HAIRPIN_EXEC_MAXCNT 120
+#define THRD_HAIRPIN_OFFSET_AMPLITUDE (THRD_SEARCH_AMPLITUDE * 1.2f)
+#define THRD_HAIRPIN_SWEEP_STEP 0.25f
+
+static uint8_t hairpin_state = 0;         // 0=正常,1=执行发卡弯策略
+static uint8_t hairpin_detect_cnt = 0;    // 连续检测计数
+static uint16_t hairpin_exec_cnt = 0;     // 执行周期计数
+static float hairpin_phase = 0.0f;        // 发卡弯摆动相位
+static int8_t hairpin_prefer_sign = 1;    // 1=优先向左, -1=优先向右
+
+/* PID 切换：当偏移量较大时使用更激进的 PID 参数；使用滞回防止频繁切换 */
+#define THRD_PID_SWITCH_THRESHOLD 1.60f    /* 绝对 offset 超过此值使用 large PID */
+#define THRD_PID_SWITCH_HYSTERESIS 0.15f   /* 滞回量 */
+/* large PID 参数（偏移较大时使用）——建议：增大 P 和 D，减小 I */
+#define THRD_PID_LARGE_KP 35.0f
+#define THRD_PID_LARGE_KI 0.20f
+#define THRD_PID_LARGE_KD 1.0f
+
+/* small PID 使用文件顶部的 Kp/Ki/Kd 变量（默认值保留）
+    运行时用 thrd_pid_mode 切换生效参数 */
+static uint8_t thrd_pid_mode = 0; /* 0 = small(default), 1 = large */
 
 volatile float v1 = 0, v2 = 0, v3 = 0;
 volatile float offset = 0;
@@ -148,25 +172,71 @@ void thrdPID(void)
                 offset = -centroid; // 左偏为正
                 /* 如果找回线，停止搜索模式并重置相位（可保留相位以连续搜索） */
                 thrd_searching = 0;
+                /* 找到线时若正在执行发卡弯策略，结束该策略 */
+                if (hairpin_state == 1) {
+                    hairpin_state = 0;
+                    hairpin_detect_cnt = 0;
+                    hairpin_exec_cnt = 0;
+                }
             } else {
-                /* 无信号或丢线：周期摆动搜线（正弦）
-                   - 初始时根据当前/上一次状态偏好设置相位偏置（优先朝上一次偏向的方向）
-                   - 随后按 THRD_SEARCH_STEP 增加相位，计算 sin 作为偏移值
-                */
-                if (!thrd_searching) {
-                    thrd_searching = 1;
-                    if (Status.curStatus <= 3) thrd_search_phase = THRD_PI / 2.0f;        // sin = +1 -> 向左
-                    else if (Status.curStatus >= 5) thrd_search_phase = -THRD_PI / 2.0f; // sin = -1 -> 向右
-                    else if (Status.lstStatus <= 3) thrd_search_phase = THRD_PI / 2.0f;
-                    else if (Status.lstStatus >= 5) thrd_search_phase = -THRD_PI / 2.0f;
-                    else thrd_search_phase = THRD_PI / 2.0f; // 兜底向左
+                /* 先进行发卡弯检测：当左右边缘同时感应到黑且中间很弱时，累加检测计数 */
+                if (adcf0 && adcf4 && (v2 < 0.12f || b2 == 0)) {
+                    if (hairpin_detect_cnt < 255) hairpin_detect_cnt++;
+                } else {
+                    if (hairpin_detect_cnt) hairpin_detect_cnt = 0;
                 }
 
-                thrd_search_phase += THRD_SEARCH_STEP;
-                /* 归一相位到 0..2PI 范围，避免过大 */
-                if (thrd_search_phase > 2.0f * THRD_PI) thrd_search_phase -= 2.0f * THRD_PI;
+                /* 若检测到发卡弯，进入发卡弯策略（优先使用发卡弯策略覆盖普通搜线） */
+                if (hairpin_state == 0 && hairpin_detect_cnt >= THRD_HAIRPIN_DETECT_CNT_THRESH) {
+                    hairpin_state = 1;
+                    hairpin_exec_cnt = 0;
+                    /* 优先朝上次偏向的方向搜索 */
+                    if (Status.curStatus <= 3) hairpin_prefer_sign = 1;
+                    else if (Status.curStatus >= 5) hairpin_prefer_sign = -1;
+                    else if (Status.lstStatus <= 3) hairpin_prefer_sign = 1;
+                    else if (Status.lstStatus >= 5) hairpin_prefer_sign = -1;
+                    else hairpin_prefer_sign = 1;
+                    /* 初始化相位，使第一次输出与优先方向一致 */
+                    hairpin_phase = (hairpin_prefer_sign > 0) ? (THRD_PI/2.0f) : (-THRD_PI/2.0f);
+                }
 
-                offset = THRD_SEARCH_AMPLITUDE * sinf(thrd_search_phase);
+                if (hairpin_state == 1) {
+                    /* 执行发卡弯策略：用更激进的周期摆动覆盖 offset，促使车快速掉头 */
+                    hairpin_phase += THRD_HAIRPIN_SWEEP_STEP;
+                    if (hairpin_phase > 2.0f * THRD_PI) hairpin_phase -= 2.0f * THRD_PI;
+                    offset = hairpin_prefer_sign * THRD_HAIRPIN_OFFSET_AMPLITUDE * sinf(hairpin_phase);
+                    hairpin_exec_cnt++;
+
+                    /* 在执行过程中检测到回到线路（中传感器触线或质心恢复）则结束策略 */
+                    if (b2 || (denom > 1e-6f)) {
+                        hairpin_state = 0;
+                        hairpin_detect_cnt = 0;
+                        hairpin_exec_cnt = 0;
+                    } else if (hairpin_exec_cnt > THRD_HAIRPIN_EXEC_MAXCNT) {
+                        /* 超时后退回到常规摆动搜线（并且扩大摆幅以继续寻找） */
+                        hairpin_state = 0;
+                        hairpin_detect_cnt = 0;
+                        hairpin_exec_cnt = 0;
+                        thrd_searching = 1;
+                        thrd_search_phase = hairpin_phase; /* 保持相位连续性 */
+                    }
+                } else {
+                    /* 常规周期摆动搜线（当未进入发卡弯策略时） */
+                    if (!thrd_searching) {
+                        thrd_searching = 1;
+                        if (Status.curStatus <= 3) thrd_search_phase = THRD_PI / 2.0f;        // sin = +1 -> 向左
+                        else if (Status.curStatus >= 5) thrd_search_phase = -THRD_PI / 2.0f; // sin = -1 -> 向右
+                        else if (Status.lstStatus <= 3) thrd_search_phase = THRD_PI / 2.0f;
+                        else if (Status.lstStatus >= 5) thrd_search_phase = -THRD_PI / 2.0f;
+                        else thrd_search_phase = THRD_PI / 2.0f; // 兜底向左
+                    }
+
+                    thrd_search_phase += THRD_SEARCH_STEP;
+                    /* 归一相位到 0..2PI 范围，避免过大 */
+                    if (thrd_search_phase > 2.0f * THRD_PI) thrd_search_phase -= 2.0f * THRD_PI;
+
+                    offset = THRD_SEARCH_AMPLITUDE * sinf(thrd_search_phase);
+                }
             }
         }
         //if(Status.curStatus == 3) offset = 0;       //如果在状态3 则不希
@@ -202,14 +272,39 @@ void thrdPID(void)
             ErrorInt = 0;			//误差积分直接归0
         }
         
-        /*PID计算，先得到微分项*/
-//			DifOut = Kd * (Error0 - Error1);		//这一句是普通PID的微分项计算公式
-        DifOut = - Kd * (Actual - Actual1);		//这一句是微分先行的微分项计算公式
-                                                //计算结果要取负，因为实际值的变化趋势和误差变化趋势相反
-        
-        /*PID计算*/
-        /*使用位置式PID公式，计算得到输出值*/
-        Out = Kp * Error0 + Ki * ErrorInt + DifOut;
+        /*PID计算，先根据 offset 选择有效 PID 参数（含滞回防抖）*/
+//			DifOut = Kd * (Error0 - Error1); // 普通 PID 微分项（注释保留）
+        {
+            float abs_off = fabsf(offset);
+            /* 切换逻辑：当处于 small 模式且偏移过大，切换到 large；
+               当处于 large 且偏移小于阈值减滞回时切回 small */
+            if (thrd_pid_mode == 0) {
+                if (abs_off > THRD_PID_SWITCH_THRESHOLD) {
+                    thrd_pid_mode = 1;
+                    /* 减小积分项影响以避免突变过大 */
+                    ErrorInt *= 0.5f;
+                }
+            } else {
+                if (abs_off < (THRD_PID_SWITCH_THRESHOLD - THRD_PID_SWITCH_HYSTERESIS)) {
+                    thrd_pid_mode = 0;
+                }
+            }
+
+            float Kp_eff = Kp;
+            float Ki_eff = Ki;
+            float Kd_eff = Kd;
+            if (thrd_pid_mode) {
+                Kp_eff = THRD_PID_LARGE_KP;
+                Ki_eff = THRD_PID_LARGE_KI;
+                Kd_eff = THRD_PID_LARGE_KD;
+            }
+
+            /* 微分先行公式，使用有效 Kd */
+            DifOut = - Kd_eff * (Actual - Actual1);
+
+            /* 位置式PID计算，使用有效 Kp/Ki */
+            Out = Kp_eff * Error0 + Ki_eff * ErrorInt + DifOut;
+        }
         
         /*输出限幅*/
         //if (Out > OUTPUT_MAX) {Out = OUTPUT_MAX;}		//限制输出值最大
