@@ -22,6 +22,16 @@ static volatile float DifOut = 0, Actual1 = 0;				//微分项输出，上次实�
 #define THRD_ANALOG_WEIGHT 1.0f
 /* 丢线时寻找用的固定偏移，正值表示向左搜索（与 offset 符号约定一致） */
 #define THRD_SEARCH_OFFSET 2.0f
+/* 用于周期摆动搜线的常量 */
+#define THRD_PI 3.14159265f
+/* 摆动振幅（与 THRD_SEARCH_OFFSET 保持一致） */
+#define THRD_SEARCH_AMPLITUDE THRD_SEARCH_OFFSET
+/* 每次调用相位增量，单位为弧度。可调节搜索速度：值越大摆动越快 */
+#define THRD_SEARCH_STEP 0.1f
+
+/* 周期摆动搜线状态变量（文件级静态） */
+static float thrd_search_phase = 0.0f;
+static uint8_t thrd_searching = 0;
 
 volatile float v1 = 0, v2 = 0, v3 = 0;
 volatile float offset = 0;
@@ -136,22 +146,27 @@ void thrdPID(void)
             if (denom > 1e-6f) {
                 float centroid = numerator / denom;
                 offset = -centroid; // 左偏为正
+                /* 如果找回线，停止搜索模式并重置相位（可保留相位以连续搜索） */
+                thrd_searching = 0;
             } else {
-                /* 无信号或丢线：进入寻找策略
-                   - 若上一次/当前状态偏左，则向左搜索（offset 正）
-                   - 若上一次/当前状态偏右，则向右搜索（offset 负）
-                   - 若无法判断，则默认向左搜索
+                /* 无信号或丢线：周期摆动搜线（正弦）
+                   - 初始时根据当前/上一次状态偏好设置相位偏置（优先朝上一次偏向的方向）
+                   - 随后按 THRD_SEARCH_STEP 增加相位，计算 sin 作为偏移值
                 */
-                if (Status.curStatus <= 3) {
-                    offset = THRD_SEARCH_OFFSET; // 偏左，向左搜
-                } else if (Status.curStatus >= 5) {
-                    offset = -THRD_SEARCH_OFFSET; // 偏右，向右搜
-                } else {
-                    /* 当前为中心(4)或未知，参考上一次状态再决定 */
-                    if (Status.lstStatus <= 3) offset = THRD_SEARCH_OFFSET;
-                    else if (Status.lstStatus >= 5) offset = -THRD_SEARCH_OFFSET;
-                    else offset = THRD_SEARCH_OFFSET; // 最后兜底，向左
+                if (!thrd_searching) {
+                    thrd_searching = 1;
+                    if (Status.curStatus <= 3) thrd_search_phase = THRD_PI / 2.0f;        // sin = +1 -> 向左
+                    else if (Status.curStatus >= 5) thrd_search_phase = -THRD_PI / 2.0f; // sin = -1 -> 向右
+                    else if (Status.lstStatus <= 3) thrd_search_phase = THRD_PI / 2.0f;
+                    else if (Status.lstStatus >= 5) thrd_search_phase = -THRD_PI / 2.0f;
+                    else thrd_search_phase = THRD_PI / 2.0f; // 兜底向左
                 }
+
+                thrd_search_phase += THRD_SEARCH_STEP;
+                /* 归一相位到 0..2PI 范围，避免过大 */
+                if (thrd_search_phase > 2.0f * THRD_PI) thrd_search_phase -= 2.0f * THRD_PI;
+
+                offset = THRD_SEARCH_AMPLITUDE * sinf(thrd_search_phase);
             }
         }
         //if(Status.curStatus == 3) offset = 0;       //如果在状态3 则不希
